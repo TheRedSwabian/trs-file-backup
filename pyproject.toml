@@ -9,6 +9,10 @@ packages = [
     { include = "trs_file_backup", from = "src" },
 ]
 
+[tool.poetry.scripts]
+bcs = "trs_file_backup.main:app"
+trs-file-backup = "trs_file_backup.main:app"
+
 [[tool.poetry.source]]
 name = "pypi"
 url = "https://artifactory.example.com/artifactory/api/pypi/aspl-pypi-release-virtual/simple"
@@ -20,10 +24,13 @@ py-app-dev = "^2.6"
 typer = "^0.16"
 pypeline-runner = "^1.14"
 pypeline-semantic-release = "^0.4"
+rich = "^13.7"
+watchdog = "^4.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3"
 pytest-cov = "^6.0"
+pytest-mock = "^3.14"
 python-semantic-release = "^9.1"
 ruff = "^0.3"
 pypeline-runner = "^1.6"
