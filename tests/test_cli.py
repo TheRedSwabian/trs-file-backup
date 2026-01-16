@@ -130,6 +130,29 @@ class TestInitCommand:
 
         assert "initialized" in result.stdout.lower() or "init" in result.stdout.lower()
 
+    def test_init_saves_state(self, mocker, tmp_path):
+        """Test that init command saves state to disk."""
+        from trs_file_backup.main import app
+        from trs_file_backup.state import StateManager
+
+        source = tmp_path / "source"
+        source.mkdir()
+        dest = tmp_path / "dest"
+
+        result = runner.invoke(
+            app,
+            ["init", "--source", str(source), "--destination", str(dest)],
+        )
+
+        assert result.exit_code == 0
+
+        # Verify state was saved by loading it back
+        state_file = dest / ".backup_state.json"
+        state = StateManager.load(state_file)
+        assert state is not None
+        assert str(state.source_path) == str(source)
+        assert str(state.destination_path) == str(dest)
+
 
 class TestRunCommand:
     """Test suite for run command."""
@@ -389,6 +412,33 @@ class TestWatchCommand:
         )
 
         assert result.exit_code == 0
+
+    def test_watch_handles_exception_gracefully(self, mocker, tmp_path):
+        """Test that watch command handles exceptions and cleans up logger."""
+        from trs_file_backup.main import app
+
+        source = tmp_path / "source"
+        source.mkdir()
+        dest = tmp_path / "dest"
+
+        # Mock Observer to raise an exception
+        mock_observer_class = mocker.patch("trs_file_backup.main.Observer")
+        mock_observer_class.return_value.start.side_effect = RuntimeError("Test error")
+
+        # Mock logger close to verify cleanup
+        mock_logger = mocker.patch("trs_file_backup.main.BackupLogger")
+        mock_logger_instance = Mock()
+        mock_logger.return_value = mock_logger_instance
+
+        result = runner.invoke(
+            app,
+            ["watch", "--source", str(source), "--destination", str(dest)],
+        )
+
+        # Should exit with error code
+        assert result.exit_code == 1
+        # Should have closed the logger
+        mock_logger_instance.close.assert_called_once()
 
 
 class TestBackupEventHandler:
