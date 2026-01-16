@@ -27,15 +27,5 @@ pipeline:
   - step: ExecuteTests
     run: pytest
 
-  - step: GenerateDocs
-    run: [sphinx-build, docs, build/docs/html]
-
   - step: CreateReleaseCommit
     module: pypeline_semantic_release.steps
-
-  - step: PublishPackage
-    module: pypeline_semantic_release.steps
-    config:
-      pypi_repository_name: "pypi-publish-release"
-      pypi_user_env: "PYPI_USER"
-      pypi_password_env: "PYPI_PASSWD"

@@ -6,7 +6,7 @@ Script to monitor directories and create timestamped backups of modified files a
 ![license](https://img.shields.io/badge/license-MQ--internal-009b9b?style=flat-square)
 ![ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)
 ![pypeline](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/cuinixam/pypeline/main/assets/badge/v0.json)
-[![Build Status](https://jenkins.example.com/buildStatus/icon?job=SD-RM%2FSD-RM%2Ftrs-file-backup%2Fdevelop)](https://jenkins.example.com/job/SD-RM/job/SD-RM/job/trs-file-backup/job/develop/)
+[![Build Status](https://github.com/TheRedSwabian/trs-file-backup/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/TheRedSwabian/trs-file-backup/actions)
 
 ## Features
 
