@@ -3,7 +3,7 @@
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import typer
 from rich.console import Console
@@ -23,7 +23,7 @@ app = typer.Typer(
 console = Console()
 
 
-def version_callback(value: bool):
+def version_callback(value: bool) -> None:
     """Show version and exit."""
     if value:
         console.print(f"trs-file-backup version {__version__}")
@@ -40,7 +40,7 @@ def main(
         is_eager=True,
         help="Show version and exit",
     ),
-):
+) -> None:
     """trs-file-backup - Monitor and backup modified files with timestamps.
 
     This tool helps you create timestamped backups of modified files from a
@@ -60,7 +60,7 @@ def main(
 
 @app.command()
 def init(
-    source: Path = typer.Option(
+    source: Path = typer.Option(  # noqa: B008
         ...,
         "--source",
         help="Source directory to monitor",
@@ -69,7 +69,7 @@ def init(
         dir_okay=True,
         resolve_path=True,
     ),
-    destination: Path = typer.Option(
+    destination: Path = typer.Option(  # noqa: B008
         ...,
         "--destination",
         help="Destination backup directory",
@@ -77,7 +77,7 @@ def init(
         dir_okay=True,
         resolve_path=True,
     ),
-    exclude: List[str] = typer.Option(
+    exclude: List[str] = typer.Option(  # noqa: B008
         [],
         "--exclude",
         help="File/directory patterns to exclude (can be repeated)",
@@ -88,7 +88,7 @@ def init(
         help="Seconds to wait before backup (default: 2)",
         min=0,
     ),
-):
+) -> None:
     """Initialize backup tracking for a directory.
 
     This command sets up backup tracking by creating a state file in the destination
@@ -109,7 +109,7 @@ def init(
     logger = None
     try:
         # Add default exclusions
-        excluded_patterns = [".backup_state.json"] + exclude
+        excluded_patterns = [".backup_state.json", *exclude]
 
         # Create logger
         logger = BackupLogger(destination)
@@ -147,7 +147,7 @@ def init(
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from None
     finally:
         if logger is not None:
             logger.close()
@@ -155,7 +155,7 @@ def init(
 
 @app.command()
 def run(
-    source: Path = typer.Option(
+    source: Path = typer.Option(  # noqa: B008
         ...,
         "--source",
         help="Source directory to monitor",
@@ -164,7 +164,7 @@ def run(
         dir_okay=True,
         resolve_path=True,
     ),
-    destination: Path = typer.Option(
+    destination: Path = typer.Option(  # noqa: B008
         ...,
         "--destination",
         help="Destination backup directory",
@@ -172,7 +172,7 @@ def run(
         dir_okay=True,
         resolve_path=True,
     ),
-    exclude: List[str] = typer.Option(
+    exclude: List[str] = typer.Option(  # noqa: B008
         [],
         "--exclude",
         help="File/directory patterns to exclude (can be repeated)",
@@ -188,7 +188,7 @@ def run(
         "--dry-run",
         help="Show what would be backed up without copying",
     ),
-):
+) -> None:
     """Execute a one-time backup of modified files.
 
     This command scans the source directory for files that have been modified
@@ -212,7 +212,7 @@ def run(
     logger = None
     try:
         # Add default exclusions
-        excluded_patterns = [".backup_state.json"] + exclude
+        excluded_patterns = [".backup_state.json", *exclude]
 
         # Load or create state
         state_file = destination / ".backup_state.json"
@@ -295,12 +295,12 @@ def run(
                 console.print(f"  [green]✓[/green] {file.name} → {backup_path.name}")
                 backed_up_count += 1
 
-            except PermissionError as e:
+            except PermissionError:
                 logger.log_error(f"Permission denied: {file.name}")
                 console.print(f"  [red]✗[/red] Permission denied: {file.name}")
                 failed_count += 1
 
-            except OSError as e:
+            except OSError:
                 logger.log_file_locked(file.name)
                 console.print(f"  [yellow]⚠[/yellow] File locked, skipping: {file.name}")
                 failed_count += 1
@@ -320,7 +320,7 @@ def run(
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from None
     finally:
         if logger is not None:
             logger.close()
@@ -349,10 +349,10 @@ class BackupEventHandler(FileSystemEventHandler):
         self.state = state
         self.logger = logger
         self.debounce_seconds = debounce_seconds
-        self.pending_files = {}
+        self.pending_files: dict[Path, float] = {}
         self.backed_up_count = 0
 
-    def on_modified(self, event):
+    def on_modified(self, event: Any) -> None:
         """Handle file modification event.
 
         Args:
@@ -394,7 +394,7 @@ class BackupEventHandler(FileSystemEventHandler):
 
                 # Log success
                 self.logger.log_file_backed_up(file_path.name, backup_path.name)
-                console.print(f"[{timestamp.strftime('%Y-%m-%d %H:%M:%S')}] Backing up: {file_path.name} → {backup_path.name} [green]✓[/green]")
+                console.print(f"[{timestamp.strftime('%Y-%m-%d %H:%M:%S')}] Backing up: {file_path.name} -> {backup_path.name} [green]OK[/green]")
 
                 self.backed_up_count += 1
 
@@ -403,16 +403,16 @@ class BackupEventHandler(FileSystemEventHandler):
 
             except PermissionError:
                 self.logger.log_error(f"Permission denied: {file_path.name}")
-                console.print(f"[red]✗[/red] Permission denied: {file_path.name}")
+                console.print(f"[red]ERROR[/red] Permission denied: {file_path.name}")
 
             except OSError:
                 self.logger.log_file_locked(file_path.name)
-                console.print(f"[yellow]⚠[/yellow] File locked, skipping: {file_path.name}")
+                console.print(f"[yellow]WARNING[/yellow] File locked, skipping: {file_path.name}")
 
 
 @app.command()
 def watch(
-    source: Path = typer.Option(
+    source: Path = typer.Option(  # noqa: B008
         ...,
         "--source",
         help="Source directory to monitor",
@@ -421,7 +421,7 @@ def watch(
         dir_okay=True,
         resolve_path=True,
     ),
-    destination: Path = typer.Option(
+    destination: Path = typer.Option(  # noqa: B008
         ...,
         "--destination",
         help="Destination backup directory",
@@ -429,7 +429,7 @@ def watch(
         dir_okay=True,
         resolve_path=True,
     ),
-    exclude: List[str] = typer.Option(
+    exclude: List[str] = typer.Option(  # noqa: B008
         [],
         "--exclude",
         help="File/directory patterns to exclude (can be repeated)",
@@ -440,7 +440,7 @@ def watch(
         help="Seconds to wait after modification before backup",
         min=0,
     ),
-):
+) -> None:
     """Continuously monitor and backup files in real-time.
 
     This command starts a file system monitor that watches the source directory
@@ -466,7 +466,7 @@ def watch(
     """
     try:
         # Add default exclusions
-        excluded_patterns = [".backup_state.json"] + exclude
+        excluded_patterns = [".backup_state.json", *exclude]
 
         # Load or create state
         state_file = destination / ".backup_state.json"
@@ -542,7 +542,7 @@ def watch(
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from None
     finally:
         if logger is not None:
             logger.close()

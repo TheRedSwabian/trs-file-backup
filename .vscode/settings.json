@@ -1,5 +1,7 @@
 {
-  "python.testing.pytestArgs": ["tests"],
+  "python.testing.pytestArgs": [
+    "tests"
+  ],
   "python.testing.unittestEnabled": false,
   "python.testing.pytestEnabled": true,
   "editor.formatOnSave": true,
@@ -26,5 +28,12 @@
     "titleBar.inactiveBackground": "#93e9fb99",
     "titleBar.inactiveForeground": "#15202b99"
   },
-  "peacock.color": "#93e9fb"
+  "peacock.color": "#93e9fb",
+  "chat.tools.terminal.autoApprove": {
+    ".\\.venv\\Scripts\\pypeline.exe": true,
+    "Test-Path": true,
+    "where.exe": true,
+    "Get-Command": true,
+    ".\\.venv\\Scripts\\pytest.exe": true
+  }
 }

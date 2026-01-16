@@ -12,8 +12,8 @@ The tool shall be implemented as a Python command-line application with comprehe
 
 ### FR-1: Source Directory Monitoring
 
-**ID:** FR-1  
-**Title:** Monitor source directory for modified files  
+**ID:** FR-1
+**Title:** Monitor source directory for modified files
 **Description:** The system shall identify all files in a source directory that have been modified since the last backup operation.
 
 **Acceptance Criteria:**
@@ -26,8 +26,8 @@ The tool shall be implemented as a Python command-line application with comprehe
 
 ### FR-2: File Backup Creation
 
-**ID:** FR-2  
-**Title:** Create timestamped backup copies  
+**ID:** FR-2
+**Title:** Create timestamped backup copies
 **Description:** The system shall copy modified files to a destination directory with timestamps in the filename.
 
 **Acceptance Criteria:**
@@ -41,8 +41,8 @@ The tool shall be implemented as a Python command-line application with comprehe
 
 ### FR-3: State Persistence
 
-**ID:** FR-3  
-**Title:** Track last backup timestamp  
+**ID:** FR-3
+**Title:** Track last backup timestamp
 **Description:** The system shall persist the timestamp of the last successful backup to determine which files have changed.
 
 **Acceptance Criteria:**
@@ -55,8 +55,8 @@ The tool shall be implemented as a Python command-line application with comprehe
 
 ### FR-4: Exclusion Patterns
 
-**ID:** FR-4  
-**Title:** Exclude specific files and directories  
+**ID:** FR-4
+**Title:** Exclude specific files and directories
 **Description:** The system shall allow exclusion of certain files and directories from backup.
 
 **Acceptance Criteria:**
@@ -71,8 +71,8 @@ The tool shall be implemented as a Python command-line application with comprehe
 
 ### FR-5: Real-Time File System Monitoring
 
-**ID:** FR-5  
-**Title:** Watch mode for continuous file monitoring  
+**ID:** FR-5
+**Title:** Watch mode for continuous file monitoring
 **Description:** The system shall provide a watch mode that continuously monitors the source directory and automatically backs up files when they are modified.
 
 **Acceptance Criteria:**
@@ -89,8 +89,8 @@ The tool shall be implemented as a Python command-line application with comprehe
 
 ### FR-6: Activity Logging
 
-**ID:** FR-6  
-**Title:** Log all script activities to a log file  
+**ID:** FR-6
+**Title:** Log all script activities to a log file
 **Description:** The system shall document all activities, operations, and errors in a log file stored in the destination directory.
 
 **Acceptance Criteria:**
@@ -142,8 +142,8 @@ The tool shall be implemented as a Python command-line application with comprehe
 
 ### NFR-4: Help System
 
-**ID:** NFR-4  
-**Title:** Comprehensive command-line help  
+**ID:** NFR-4
+**Title:** Comprehensive command-line help
 **Description:** The system shall provide built-in help functionality that allows users to understand and use all features without external documentation.
 
 **Requirements:**

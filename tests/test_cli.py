@@ -1,11 +1,10 @@
 """Tests for CLI commands."""
 
 from pathlib import Path
-from unittest.mock import Mock, call, patch
+from unittest.mock import Mock
 
-import pytest
+from pytest_mock import MockFixture
 from typer.testing import CliRunner
-
 
 runner = CliRunner()
 
@@ -13,7 +12,7 @@ runner = CliRunner()
 class TestInitCommand:
     """Test suite for init command."""
 
-    def test_init_creates_state_file(self, mocker, tmp_path):
+    def test_init_creates_state_file(self, mocker: MockFixture, tmp_path: Path) -> None:
         """Test that init command creates state file."""
         from trs_file_backup.main import app
 
@@ -29,7 +28,7 @@ class TestInitCommand:
         assert result.exit_code == 0
         assert (dest / ".backup_state.json").exists()
 
-    def test_init_creates_log_file(self, mocker, tmp_path):
+    def test_init_creates_log_file(self, mocker: MockFixture, tmp_path: Path) -> None:
         """Test that init command creates log file."""
         from trs_file_backup.main import app
 
@@ -45,7 +44,7 @@ class TestInitCommand:
         assert result.exit_code == 0
         assert (dest / "backup.log").exists()
 
-    def test_init_with_exclusion_patterns(self, mocker, tmp_path):
+    def test_init_with_exclusion_patterns(self, mocker: MockFixture, tmp_path: Path) -> None:
         """Test init command with exclusion patterns."""
         from trs_file_backup.main import app
 
@@ -70,7 +69,7 @@ class TestInitCommand:
 
         assert result.exit_code == 0
 
-    def test_init_with_custom_debounce(self, mocker, tmp_path):
+    def test_init_with_custom_debounce(self, mocker: MockFixture, tmp_path: Path) -> None:
         """Test init command with custom debounce setting."""
         from trs_file_backup.main import app
 
@@ -85,7 +84,7 @@ class TestInitCommand:
 
         assert result.exit_code == 0
 
-    def test_init_missing_source(self, mocker):
+    def test_init_missing_source(self, mocker: MockFixture) -> None:
         """Test init command fails without source parameter."""
         from trs_file_backup.main import app
 
@@ -93,7 +92,7 @@ class TestInitCommand:
 
         assert result.exit_code != 0
 
-    def test_init_missing_destination(self, mocker):
+    def test_init_missing_destination(self, mocker: MockFixture) -> None:
         """Test init command fails without destination parameter."""
         from trs_file_backup.main import app
 
@@ -101,7 +100,7 @@ class TestInitCommand:
 
         assert result.exit_code != 0
 
-    def test_init_invalid_source_directory(self, mocker, tmp_path):
+    def test_init_invalid_source_directory(self, mocker: MockFixture, tmp_path: Path) -> None:
         """Test init command handles non-existent source directory."""
         from trs_file_backup.main import app
 
@@ -115,7 +114,7 @@ class TestInitCommand:
 
         assert result.exit_code != 0
 
-    def test_init_shows_success_message(self, mocker, tmp_path):
+    def test_init_shows_success_message(self, mocker: MockFixture, tmp_path: Path) -> None:
         """Test init command shows success message."""
         from trs_file_backup.main import app
 
@@ -130,7 +129,7 @@ class TestInitCommand:
 
         assert "initialized" in result.stdout.lower() or "init" in result.stdout.lower()
 
-    def test_init_saves_state(self, mocker, tmp_path):
+    def test_init_saves_state(self, mocker: MockFixture, tmp_path: Path) -> None:
         """Test that init command saves state to disk."""
         from trs_file_backup.main import app
         from trs_file_backup.state import StateManager
@@ -157,7 +156,7 @@ class TestInitCommand:
 class TestRunCommand:
     """Test suite for run command."""
 
-    def test_run_backs_up_modified_files(self, mocker, tmp_path):
+    def test_run_backs_up_modified_files(self, mocker: MockFixture, tmp_path: Path) -> None:
         """Test that run command backs up modified files."""
         from trs_file_backup.main import app
 
@@ -179,7 +178,7 @@ class TestRunCommand:
 
         assert result.exit_code == 0
 
-    def test_run_with_exclusion_patterns(self, mocker, tmp_path):
+    def test_run_with_exclusion_patterns(self, mocker: MockFixture, tmp_path: Path) -> None:
         """Test run command with exclusion patterns."""
         from trs_file_backup.main import app
 
@@ -208,7 +207,7 @@ class TestRunCommand:
 
         assert result.exit_code == 0
 
-    def test_run_dry_run_mode(self, mocker, tmp_path):
+    def test_run_dry_run_mode(self, mocker: MockFixture, tmp_path: Path) -> None:
         """Test run command in dry-run mode."""
         from trs_file_backup.main import app
 
@@ -226,7 +225,7 @@ class TestRunCommand:
         assert result.exit_code == 0
         assert "dry" in result.stdout.lower() or "would" in result.stdout.lower()
 
-    def test_run_shows_progress(self, mocker, tmp_path):
+    def test_run_shows_progress(self, mocker: MockFixture, tmp_path: Path) -> None:
         """Test run command shows progress."""
         from trs_file_backup.main import app
 
@@ -245,7 +244,7 @@ class TestRunCommand:
 
         assert result.exit_code == 0
 
-    def test_run_missing_source(self, mocker):
+    def test_run_missing_source(self, mocker: MockFixture) -> None:
         """Test run command fails without source parameter."""
         from trs_file_backup.main import app
 
@@ -253,7 +252,7 @@ class TestRunCommand:
 
         assert result.exit_code != 0
 
-    def test_run_missing_destination(self, mocker):
+    def test_run_missing_destination(self, mocker: MockFixture) -> None:
         """Test run command fails without destination parameter."""
         from trs_file_backup.main import app
 
@@ -261,7 +260,7 @@ class TestRunCommand:
 
         assert result.exit_code != 0
 
-    def test_run_handles_permission_errors(self, mocker, tmp_path):
+    def test_run_handles_permission_errors(self, mocker: MockFixture, tmp_path: Path) -> None:
         """Test run command handles permission errors gracefully."""
         from trs_file_backup.main import app
 
@@ -273,7 +272,7 @@ class TestRunCommand:
 
         # Mock backup_file to raise PermissionError
         mocker.patch("time.sleep")
-        mock_backup = mocker.patch("trs_file_backup.backup.BackupManager.backup_file", side_effect=PermissionError("Access denied"))
+        _mock_backup = mocker.patch("trs_file_backup.backup.BackupManager.backup_file", side_effect=PermissionError("Access denied"))
 
         result = runner.invoke(
             app,
@@ -283,7 +282,7 @@ class TestRunCommand:
         # Should not crash, should handle error gracefully
         assert "error" in result.stdout.lower() or "permission" in result.stdout.lower()
 
-    def test_run_handles_locked_files(self, mocker, tmp_path):
+    def test_run_handles_locked_files(self, mocker: MockFixture, tmp_path: Path) -> None:
         """Test run command handles locked files (OSError) gracefully."""
         from trs_file_backup.main import app
 
@@ -295,7 +294,7 @@ class TestRunCommand:
 
         # Mock backup_file to raise OSError (file locked)
         mocker.patch("time.sleep")
-        mock_backup = mocker.patch("trs_file_backup.backup.BackupManager.backup_file", side_effect=OSError("File is locked"))
+        _mock_backup = mocker.patch("trs_file_backup.backup.BackupManager.backup_file", side_effect=OSError("File is locked"))
 
         result = runner.invoke(
             app,
@@ -306,7 +305,7 @@ class TestRunCommand:
         assert result.exit_code == 0
         assert "locked" in result.stdout.lower() or "skipping" in result.stdout.lower()
 
-    def test_run_no_modified_files(self, mocker, tmp_path):
+    def test_run_no_modified_files(self, mocker: MockFixture, tmp_path: Path) -> None:
         """Test run command when no files are modified."""
         from trs_file_backup.main import app
 
@@ -337,7 +336,7 @@ class TestRunCommand:
 class TestWatchCommand:
     """Test suite for watch command."""
 
-    def test_watch_starts_monitoring(self, mocker, tmp_path):
+    def test_watch_starts_monitoring(self, mocker: MockFixture, tmp_path: Path) -> None:
         """Test that watch command starts file system monitoring."""
         from trs_file_backup.main import app
 
@@ -351,7 +350,7 @@ class TestWatchCommand:
         mock_observer_class.return_value = mock_observer_instance
 
         # Mock time.sleep to raise KeyboardInterrupt after first call
-        mock_sleep = mocker.patch("time.sleep", side_effect=KeyboardInterrupt())
+        _mock_sleep = mocker.patch("time.sleep", side_effect=KeyboardInterrupt())
 
         result = runner.invoke(
             app,
@@ -361,7 +360,7 @@ class TestWatchCommand:
         # Should handle Ctrl+C gracefully
         assert result.exit_code == 0
 
-    def test_watch_with_custom_debounce(self, mocker, tmp_path):
+    def test_watch_with_custom_debounce(self, mocker: MockFixture, tmp_path: Path) -> None:
         """Test watch command with custom debounce setting."""
         from trs_file_backup.main import app
 
@@ -374,7 +373,7 @@ class TestWatchCommand:
         mock_observer_class.return_value = mock_observer_instance
 
         # Mock time.sleep to raise KeyboardInterrupt
-        mock_sleep = mocker.patch("time.sleep", side_effect=KeyboardInterrupt())
+        _mock_sleep = mocker.patch("time.sleep", side_effect=KeyboardInterrupt())
 
         result = runner.invoke(
             app,
@@ -383,7 +382,7 @@ class TestWatchCommand:
 
         assert result.exit_code == 0
 
-    def test_watch_with_exclusion_patterns(self, mocker, tmp_path):
+    def test_watch_with_exclusion_patterns(self, mocker: MockFixture, tmp_path: Path) -> None:
         """Test watch command with exclusion patterns."""
         from trs_file_backup.main import app
 
@@ -396,7 +395,7 @@ class TestWatchCommand:
         mock_observer_class.return_value = mock_observer_instance
 
         # Mock time.sleep to raise KeyboardInterrupt
-        mock_sleep = mocker.patch("time.sleep", side_effect=KeyboardInterrupt())
+        _mock_sleep = mocker.patch("time.sleep", side_effect=KeyboardInterrupt())
 
         result = runner.invoke(
             app,
@@ -413,7 +412,7 @@ class TestWatchCommand:
 
         assert result.exit_code == 0
 
-    def test_watch_handles_exception_gracefully(self, mocker, tmp_path):
+    def test_watch_handles_exception_gracefully(self, mocker: MockFixture, tmp_path: Path) -> None:
         """Test that watch command handles exceptions and cleans up logger."""
         from trs_file_backup.main import app
 
@@ -444,11 +443,13 @@ class TestWatchCommand:
 class TestBackupEventHandler:
     """Test suite for BackupEventHandler."""
 
-    def test_event_handler_ignores_directories(self, tmp_path):
+    def test_event_handler_ignores_directories(self, tmp_path: Path) -> None:
         """Test that event handler ignores directory modification events."""
-        from trs_file_backup.main import BackupEventHandler
         from unittest.mock import Mock
+
         from watchdog.events import FileModifiedEvent
+
+        from trs_file_backup.main import BackupEventHandler
 
         source = tmp_path / "source"
         source.mkdir()
@@ -460,7 +461,7 @@ class TestBackupEventHandler:
         logger = Mock()
         state = Mock()
 
-        handler = BackupEventHandler(manager, state, logger, 1.0)
+        handler = BackupEventHandler(manager, state, logger, 1)
 
         # Create directory event
         dir_path = source / "subdir"
@@ -473,11 +474,13 @@ class TestBackupEventHandler:
         # Should not attempt backup
         manager.backup_file.assert_not_called()
 
-    def test_event_handler_ignores_excluded_files(self, tmp_path):
+    def test_event_handler_ignores_excluded_files(self, tmp_path: Path) -> None:
         """Test that event handler ignores files matching exclusion patterns."""
-        from trs_file_backup.main import BackupEventHandler, BackupManager
         from unittest.mock import Mock
+
         from watchdog.events import FileModifiedEvent
+
+        from trs_file_backup.main import BackupEventHandler
 
         source = tmp_path / "source"
         source.mkdir()
@@ -489,7 +492,7 @@ class TestBackupEventHandler:
         logger = Mock()
         state = Mock()
 
-        handler = BackupEventHandler(manager, state, logger, 1.0)
+        handler = BackupEventHandler(manager, state, logger, 1)
 
         # Create file event
         file_path = source / "test.log"
@@ -503,12 +506,14 @@ class TestBackupEventHandler:
         logger.log_file_excluded.assert_called_once()
         manager.backup_file.assert_not_called()
 
-    def test_event_handler_debounces_rapid_changes(self, tmp_path, mocker):
+    def test_event_handler_debounces_rapid_changes(self, tmp_path: Path, mocker: MockFixture) -> None:
         """Test that event handler tracks file modification time for debouncing."""
-        from trs_file_backup.main import BackupEventHandler
-        from unittest.mock import Mock
-        from watchdog.events import FileModifiedEvent
         from pathlib import Path
+        from unittest.mock import Mock
+
+        from watchdog.events import FileModifiedEvent
+
+        from trs_file_backup.main import BackupEventHandler
 
         source = tmp_path / "source"
         source.mkdir()
@@ -525,7 +530,7 @@ class TestBackupEventHandler:
         # Mock time.sleep to avoid actual waiting
         mocker.patch("time.sleep")
 
-        handler = BackupEventHandler(manager, state, logger, 2.0)
+        handler = BackupEventHandler(manager, state, logger, 2)
 
         # Create file event
         file_path = source / "test.txt"
@@ -541,11 +546,13 @@ class TestBackupEventHandler:
         # File should be removed from pending after successful backup
         assert Path(event.src_path) not in handler.pending_files
 
-    def test_event_handler_handles_permission_error(self, tmp_path, mocker):
+    def test_event_handler_handles_permission_error(self, tmp_path: Path, mocker: MockFixture) -> None:
         """Test that event handler handles permission errors gracefully."""
-        from trs_file_backup.main import BackupEventHandler
         from unittest.mock import Mock
+
         from watchdog.events import FileModifiedEvent
+
+        from trs_file_backup.main import BackupEventHandler
 
         source = tmp_path / "source"
         source.mkdir()
@@ -561,7 +568,7 @@ class TestBackupEventHandler:
         # Mock time.sleep
         mocker.patch("time.sleep")
 
-        handler = BackupEventHandler(manager, state, logger, 1.0)
+        handler = BackupEventHandler(manager, state, logger, 1)
 
         # Create file event
         file_path = source / "locked.txt"
@@ -575,11 +582,13 @@ class TestBackupEventHandler:
         logger.log_error.assert_called_once()
         manager.backup_file.assert_called_once()
 
-    def test_event_handler_handles_os_error(self, tmp_path, mocker):
+    def test_event_handler_handles_os_error(self, tmp_path: Path, mocker: MockFixture) -> None:
         """Test that event handler handles OS errors gracefully."""
-        from trs_file_backup.main import BackupEventHandler
         from unittest.mock import Mock
+
         from watchdog.events import FileModifiedEvent
+
+        from trs_file_backup.main import BackupEventHandler
 
         source = tmp_path / "source"
         source.mkdir()
@@ -595,7 +604,7 @@ class TestBackupEventHandler:
         # Mock time.sleep
         mocker.patch("time.sleep")
 
-        handler = BackupEventHandler(manager, state, logger, 1.0)
+        handler = BackupEventHandler(manager, state, logger, 1)
 
         # Create file event
         file_path = source / "locked.txt"
@@ -609,11 +618,13 @@ class TestBackupEventHandler:
         logger.log_file_locked.assert_called_once()
         manager.backup_file.assert_called_once()
 
-    def test_event_handler_successful_backup(self, tmp_path, mocker):
+    def test_event_handler_successful_backup(self, tmp_path: Path, mocker: MockFixture) -> None:
         """Test that event handler successfully backs up modified files."""
-        from trs_file_backup.main import BackupEventHandler
         from unittest.mock import Mock
+
         from watchdog.events import FileModifiedEvent
+
+        from trs_file_backup.main import BackupEventHandler
 
         source = tmp_path / "source"
         source.mkdir()
@@ -630,7 +641,7 @@ class TestBackupEventHandler:
         # Mock time.sleep
         mocker.patch("time.sleep")
 
-        handler = BackupEventHandler(manager, state, logger, 1.0)
+        handler = BackupEventHandler(manager, state, logger, 1)
 
         # Create file event
         file_path = source / "test.txt"
@@ -649,7 +660,7 @@ class TestBackupEventHandler:
 class TestMainApp:
     """Test suite for main app."""
 
-    def test_main_help_shows_commands(self, mocker):
+    def test_main_help_shows_commands(self, mocker: MockFixture) -> None:
         """Test that main help shows all commands."""
         from trs_file_backup.main import app
 
@@ -660,7 +671,7 @@ class TestMainApp:
         assert "init" in result.stdout.lower()
         assert "watch" in result.stdout.lower()
 
-    def test_main_version_flag(self, mocker):
+    def test_main_version_flag(self, mocker: MockFixture) -> None:
         """Test that version flag works."""
         from trs_file_backup.main import app
 
@@ -668,7 +679,7 @@ class TestMainApp:
 
         assert result.exit_code == 0
 
-    def test_init_help(self, mocker):
+    def test_init_help(self, mocker: MockFixture) -> None:
         """Test init command help."""
         from trs_file_backup.main import app
 
@@ -679,7 +690,7 @@ class TestMainApp:
         assert "destination" in result.stdout.lower()
         assert "exclude" in result.stdout.lower()
 
-    def test_run_help(self, mocker):
+    def test_run_help(self, mocker: MockFixture) -> None:
         """Test run command help."""
         from trs_file_backup.main import app
 
@@ -690,7 +701,7 @@ class TestMainApp:
         assert "destination" in result.stdout.lower()
         assert "dry-run" in result.stdout.lower()
 
-    def test_watch_help(self, mocker):
+    def test_watch_help(self, mocker: MockFixture) -> None:
         """Test watch command help."""
         from trs_file_backup.main import app
 

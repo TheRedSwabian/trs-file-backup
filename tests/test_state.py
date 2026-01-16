@@ -2,15 +2,16 @@
 
 import json
 from pathlib import Path
-from unittest.mock import Mock, mock_open, patch
+from unittest.mock import mock_open
 
 import pytest
+from pytest_mock import MockFixture
 
 
 class TestStateManager:
     """Test suite for StateManager class."""
 
-    def test_load_state_file_exists(self, mocker):
+    def test_load_state_file_exists(self, mocker: MockFixture) -> None:
         """Test loading an existing state file."""
         mock_state_data = {
             "source_path": "/source",
@@ -29,6 +30,7 @@ class TestStateManager:
 
         state = StateManager.load("/dest/.backup_state.json")
 
+        assert state is not None
         assert state.source_path == Path("/source")
         assert state.destination_path == Path("/dest")
         assert state.debounce_seconds == 2
@@ -36,7 +38,7 @@ class TestStateManager:
         assert len(state.files) == 2
         assert state.files["file1.txt"] == 1736772622.5
 
-    def test_load_state_file_not_exists(self, mocker):
+    def test_load_state_file_not_exists(self, mocker: MockFixture) -> None:
         """Test loading when state file doesn't exist returns None."""
         mocker.patch("pathlib.Path.exists", return_value=False)
 
@@ -46,7 +48,7 @@ class TestStateManager:
 
         assert state is None
 
-    def test_load_state_invalid_json(self, mocker):
+    def test_load_state_invalid_json(self, mocker: MockFixture) -> None:
         """Test loading state file with invalid JSON raises error."""
         mock_file = mock_open(read_data="invalid json {")
         mocker.patch("pathlib.Path.exists", return_value=True)
@@ -57,7 +59,7 @@ class TestStateManager:
         with pytest.raises(json.JSONDecodeError):
             StateManager.load("/dest/.backup_state.json")
 
-    def test_save_state_creates_file(self, mocker):
+    def test_save_state_creates_file(self, mocker: MockFixture) -> None:
         """Test saving state creates the state file."""
         from trs_file_backup.state import StateManager
 
@@ -87,12 +89,12 @@ class TestStateManager:
         assert saved_data["debounce_seconds"] == 2
         assert saved_data["log_file"] == "backup.log"
 
-    def test_save_state_atomic_write(self, mocker):
+    def test_save_state_atomic_write(self, mocker: MockFixture) -> None:
         """Test that save uses atomic write (temp file + rename)."""
         from trs_file_backup.state import StateManager
 
         mock_file = mock_open()
-        mock_mkdir = mocker.patch("pathlib.Path.mkdir")
+        _mock_mkdir = mocker.patch("pathlib.Path.mkdir")
         mock_open_func = mocker.patch("builtins.open", mock_file)
         mock_rename = mocker.patch("pathlib.Path.rename")
         mocker.patch("pathlib.Path.exists", return_value=False)
@@ -116,7 +118,7 @@ class TestStateManager:
         # Check that rename was called (atomic operation)
         mock_rename.assert_called_once()
 
-    def test_update_file_timestamp(self, mocker):
+    def test_update_file_timestamp(self, mocker: MockFixture) -> None:
         """Test updating timestamp for a file."""
         from trs_file_backup.state import StateManager
 
@@ -132,7 +134,7 @@ class TestStateManager:
 
         assert state.files["file1.txt"] == 2000.0
 
-    def test_add_new_file_timestamp(self, mocker):
+    def test_add_new_file_timestamp(self, mocker: MockFixture) -> None:
         """Test adding a new file timestamp."""
         from trs_file_backup.state import StateManager
 
@@ -149,7 +151,7 @@ class TestStateManager:
         assert "newfile.txt" in state.files
         assert state.files["newfile.txt"] == 1500.0
 
-    def test_is_modified_file_newer(self):
+    def test_is_modified_file_newer(self) -> None:
         """Test that file is considered modified if newer than tracked timestamp."""
         from trs_file_backup.state import StateManager
 
@@ -163,7 +165,7 @@ class TestStateManager:
 
         assert state.is_modified("file1.txt", 1500.0) is True
 
-    def test_is_modified_file_older(self):
+    def test_is_modified_file_older(self) -> None:
         """Test that file is not modified if older than tracked timestamp."""
         from trs_file_backup.state import StateManager
 
@@ -177,7 +179,7 @@ class TestStateManager:
 
         assert state.is_modified("file1.txt", 500.0) is False
 
-    def test_is_modified_file_not_tracked(self):
+    def test_is_modified_file_not_tracked(self) -> None:
         """Test that untracked file is always considered modified."""
         from trs_file_backup.state import StateManager
 
@@ -191,7 +193,7 @@ class TestStateManager:
 
         assert state.is_modified("newfile.txt", 1000.0) is True
 
-    def test_state_file_path_property(self):
+    def test_state_file_path_property(self) -> None:
         """Test that state_file_path returns correct path."""
         from trs_file_backup.state import StateManager
 

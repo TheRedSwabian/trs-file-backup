@@ -7,10 +7,10 @@ Describe "create-portable.ps1 - Version Reading" {
     It "should read version from __init__.py" {
         $versionFile = Join-Path $script:projectRoot "src\trs_file_backup\__init__.py"
         Test-Path $versionFile | Should -Be $true
-        
+
         $versionLine = Get-Content $versionFile | Select-String '__version__\s*=\s*"([^"]+)"'
         $versionLine | Should -Not -BeNullOrEmpty
-        
+
         $version = $versionLine.Matches.Groups[1].Value
         $version | Should -Match '^\d+\.\d+\.\d+$'
     }
@@ -25,35 +25,35 @@ Describe "create-portable.ps1 - Wheel Package Creation" {
         & ".\create-portable.ps1" -Type wheel -OutputDir $script:testOutputDir 2>&1 | Out-Null
         Pop-Location
     }
-    
+
     It "should create output directory" {
         Test-Path $script:testOutputDir | Should -Be $true
     }
-    
+
     It "should create a wheel file" {
         $wheelFiles = Get-ChildItem -Path $script:testOutputDir -Filter "*.whl"
         $wheelFiles.Count | Should -BeGreaterThan 0
     }
-    
+
     It "should create wheel with correct naming format" {
         $wheelFiles = Get-ChildItem -Path $script:testOutputDir -Filter "*.whl"
         $wheelFiles[0].Name | Should -Match '^trs-file-backup-\d+\.\d+\.\d+-py3-none-any\.whl$'
     }
-    
+
     It "should include version in wheel filename" {
         $versionFile = Join-Path $script:projectRoot "src\trs_file_backup\__init__.py"
         $versionLine = Get-Content $versionFile | Select-String '__version__\s*=\s*"([^"]+)"'
         $version = $versionLine.Matches.Groups[1].Value
-        
+
         $wheelFiles = Get-ChildItem -Path $script:testOutputDir -Filter "*.whl"
         $wheelFiles[0].Name | Should -Match "trs-file-backup-$version-"
     }
-    
+
     It "should create installation instructions" {
         $instructionsFile = Join-Path $script:testOutputDir "INSTALL-WHEEL.txt"
         Test-Path $instructionsFile | Should -Be $true
     }
-    
+
     It "should include pip install command in instructions" {
         $instructionsFile = Join-Path $script:testOutputDir "INSTALL-WHEEL.txt"
         $content = Get-Content $instructionsFile -Raw
@@ -70,21 +70,21 @@ Describe "create-portable.ps1 - ZIP Package Creation" {
         & ".\create-portable.ps1" -Type zip -OutputDir $script:testOutputDir 2>&1 | Out-Null
         Pop-Location
     }
-    
+
     It "should create a ZIP file" {
         $zipFiles = Get-ChildItem -Path $script:testOutputDir -Filter "*.zip"
         $zipFiles.Count | Should -BeGreaterThan 0
     }
-    
+
     It "should create ZIP with version in filename" {
         $versionFile = Join-Path $script:projectRoot "src\trs_file_backup\__init__.py"
         $versionLine = Get-Content $versionFile | Select-String '__version__\s*=\s*"([^"]+)"'
         $version = $versionLine.Matches.Groups[1].Value
-        
+
         $zipFiles = Get-ChildItem -Path $script:testOutputDir -Filter "*.zip"
         $zipFiles[0].Name | Should -Match "trs-file-backup-Portable-v$version\.zip"
     }
-    
+
     It "should create setup instructions" {
         $zipFiles = Get-ChildItem -Path $script:testOutputDir -Filter "*.zip"
         $zipContent = [System.IO.Compression.ZipFile]::OpenRead($zipFiles[0].FullName)
@@ -92,7 +92,7 @@ Describe "create-portable.ps1 - ZIP Package Creation" {
         $setupInstructions | Should -Not -BeNullOrEmpty
         $zipContent.Dispose()
     }
-    
+
     It "should include build.ps1 command in setup instructions" {
         $zipFiles = Get-ChildItem -Path $script:testOutputDir -Filter "*.zip"
         $zipContent = [System.IO.Compression.ZipFile]::OpenRead($zipFiles[0].FullName)
@@ -105,12 +105,12 @@ Describe "create-portable.ps1 - ZIP Package Creation" {
         $zipContent.Dispose()
         $content | Should -Match 'build\.ps1 -install'
     }
-    
+
     It "should create a valid ZIP archive" {
         $zipFiles = Get-ChildItem -Path $script:testOutputDir -Filter "*.zip"
         { [System.IO.Compression.ZipFile]::OpenRead($zipFiles[0].FullName).Dispose() } | Should -Not -Throw
     }
-    
+
     It "should include source code in ZIP" {
         $zipFiles = Get-ChildItem -Path $script:testOutputDir -Filter "*.zip"
         $zipContent = [System.IO.Compression.ZipFile]::OpenRead($zipFiles[0].FullName)
@@ -118,7 +118,7 @@ Describe "create-portable.ps1 - ZIP Package Creation" {
         $entries.Count | Should -BeGreaterThan 0
         $zipContent.Dispose()
     }
-    
+
     It "should include pyproject.toml in ZIP" {
         $zipFiles = Get-ChildItem -Path $script:testOutputDir -Filter "*.zip"
         $zipContent = [System.IO.Compression.ZipFile]::OpenRead($zipFiles[0].FullName)

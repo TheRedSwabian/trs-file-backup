@@ -1,28 +1,28 @@
 """Tests for logging functionality."""
 
 from pathlib import Path
-from unittest.mock import Mock, call, mock_open, patch
+from unittest.mock import Mock
 
-import pytest
+from pytest_mock import MockFixture
 
 
 class TestBackupLogger:
     """Test suite for BackupLogger class."""
 
-    def test_logger_initialization_creates_log_file(self, mocker):
+    def test_logger_initialization_creates_log_file(self, mocker: MockFixture) -> None:
         """Test that logger creates log file on initialization."""
         from trs_file_backup.logger import BackupLogger
 
-        mock_mkdir = mocker.patch("pathlib.Path.mkdir")
-        mock_handler = mocker.patch("logging.FileHandler")
-        mock_logger = mocker.patch("logging.getLogger")
+        _mock_mkdir = mocker.patch("pathlib.Path.mkdir")
+        _mock_handler = mocker.patch("logging.FileHandler")
+        _mock_logger = mocker.patch("logging.getLogger")
 
-        logger = BackupLogger(Path("/dest"))
+        _logger = BackupLogger(Path("/dest"))
 
-        mock_mkdir.assert_called_once()
-        mock_handler.assert_called_once()
+        _mock_mkdir.assert_called_once()
+        _mock_handler.assert_called_once()
 
-    def test_log_session_start(self, mocker):
+    def test_log_session_start(self, mocker: MockFixture) -> None:
         """Test logging session start with configuration."""
         from trs_file_backup.logger import BackupLogger
 
@@ -50,7 +50,7 @@ class TestBackupLogger:
         assert any("Exclusion patterns:" in str(call) for call in calls)
         assert any("Debounce delay: 2" in str(call) for call in calls)
 
-    def test_log_session_end(self, mocker):
+    def test_log_session_end(self, mocker: MockFixture) -> None:
         """Test logging session end with summary."""
         from trs_file_backup.logger import BackupLogger
 
@@ -66,7 +66,7 @@ class TestBackupLogger:
         calls = [str(call) for call in mock_logger.info.call_args_list]
         assert any("Session Ended" in str(call) for call in calls)
 
-    def test_log_file_backed_up(self, mocker):
+    def test_log_file_backed_up(self, mocker: MockFixture) -> None:
         """Test logging successful file backup."""
         from trs_file_backup.logger import BackupLogger
 
@@ -84,7 +84,7 @@ class TestBackupLogger:
         assert "Backed up:" in call_str
         assert "file.txt" in call_str
 
-    def test_log_file_excluded(self, mocker):
+    def test_log_file_excluded(self, mocker: MockFixture) -> None:
         """Test logging excluded file with pattern."""
         from trs_file_backup.logger import BackupLogger
 
@@ -102,7 +102,7 @@ class TestBackupLogger:
         assert "excluded" in call_str.lower()
         assert "debug.log" in call_str
 
-    def test_log_file_locked(self, mocker):
+    def test_log_file_locked(self, mocker: MockFixture) -> None:
         """Test logging locked file warning."""
         from trs_file_backup.logger import BackupLogger
 
@@ -120,7 +120,7 @@ class TestBackupLogger:
         assert "locked" in call_str.lower()
         assert "database.db" in call_str
 
-    def test_log_error(self, mocker):
+    def test_log_error(self, mocker: MockFixture) -> None:
         """Test logging errors."""
         from trs_file_backup.logger import BackupLogger
 
@@ -137,7 +137,7 @@ class TestBackupLogger:
         call_str = str(mock_logger.error.call_args)
         assert "Permission denied" in call_str
 
-    def test_log_file_modified_watch_mode(self, mocker):
+    def test_log_file_modified_watch_mode(self, mocker: MockFixture) -> None:
         """Test logging file modification in watch mode."""
         from trs_file_backup.logger import BackupLogger
 
@@ -155,7 +155,7 @@ class TestBackupLogger:
         assert "modified" in call_str.lower()
         assert "config.yaml" in call_str
 
-    def test_log_watch_started(self, mocker):
+    def test_log_watch_started(self, mocker: MockFixture) -> None:
         """Test logging watch mode started."""
         from trs_file_backup.logger import BackupLogger
 
@@ -172,7 +172,7 @@ class TestBackupLogger:
         call_str = str(mock_logger.info.call_args)
         assert "watch" in call_str.lower() or "monitor" in call_str.lower()
 
-    def test_log_watch_stopped(self, mocker):
+    def test_log_watch_stopped(self, mocker: MockFixture) -> None:
         """Test logging watch mode stopped."""
         from trs_file_backup.logger import BackupLogger
 
@@ -189,7 +189,7 @@ class TestBackupLogger:
         call_str = str(mock_logger.info.call_args)
         assert "stopped" in call_str.lower()
 
-    def test_logger_uses_utf8_encoding(self, mocker):
+    def test_logger_uses_utf8_encoding(self, mocker: MockFixture) -> None:
         """Test that logger uses UTF-8 encoding for log file."""
         from trs_file_backup.logger import BackupLogger
 
@@ -197,13 +197,13 @@ class TestBackupLogger:
         mocker.patch("pathlib.Path.mkdir")
         mocker.patch("logging.getLogger")
 
-        logger = BackupLogger(Path("/dest"))
+        _logger = BackupLogger(Path("/dest"))
 
         # Check that FileHandler was called with encoding parameter
         call_kwargs = mock_handler.call_args[1] if mock_handler.call_args else {}
         assert call_kwargs.get("encoding") == "utf-8"
 
-    def test_logger_appends_to_existing_file(self, mocker):
+    def test_logger_appends_to_existing_file(self, mocker: MockFixture) -> None:
         """Test that logger appends to existing log file."""
         from trs_file_backup.logger import BackupLogger
 
@@ -211,15 +211,15 @@ class TestBackupLogger:
         mocker.patch("pathlib.Path.mkdir")
         mocker.patch("logging.getLogger")
 
-        logger = BackupLogger(Path("/dest"))
+        _logger = BackupLogger(Path("/dest"))
 
         # Check that FileHandler was called with append mode
-        call_args = mock_handler.call_args[0] if mock_handler.call_args else ()
+        _call_args = mock_handler.call_args[0] if mock_handler.call_args else ()
         call_kwargs = mock_handler.call_args[1] if mock_handler.call_args else {}
         mode = call_kwargs.get("mode", "a")
         assert mode == "a"
 
-    def test_log_init_success(self, mocker):
+    def test_log_init_success(self, mocker: MockFixture) -> None:
         """Test logging successful initialization."""
         from trs_file_backup.logger import BackupLogger
 
@@ -236,7 +236,7 @@ class TestBackupLogger:
         call_str = str(mock_logger.info.call_args)
         assert "initialized" in call_str.lower() or "init" in call_str.lower()
 
-    def test_log_found_files(self, mocker):
+    def test_log_found_files(self, mocker: MockFixture) -> None:
         """Test logging number of files found."""
         from trs_file_backup.logger import BackupLogger
 
@@ -254,7 +254,7 @@ class TestBackupLogger:
         assert "15" in call_str
         assert "files" in call_str.lower() or "found" in call_str.lower()
 
-    def test_log_backup_completed(self, mocker):
+    def test_log_backup_completed(self, mocker: MockFixture) -> None:
         """Test logging backup operation completion."""
         from trs_file_backup.logger import BackupLogger
 

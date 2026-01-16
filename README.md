@@ -60,7 +60,7 @@ trs-file-backup run --help
 
 ### Example Output
 
-Original file: `report.txt`  
+Original file: `report.txt`
 Backup file: `2026_01_13__14_30_22__report.txt`
 
 ## Commands

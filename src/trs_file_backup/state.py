@@ -57,7 +57,7 @@ class StateManager:
         if not path.exists():
             return None
 
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
 
         return cls(
