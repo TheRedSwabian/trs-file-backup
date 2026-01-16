@@ -82,11 +82,32 @@ Run the `build.ps1` script to install Python and create the virtual environment.
 
 This will also generate a `poetry.lock` file, you should track this file in version control.
 
+### Prerequisites
+
+**PowerShell Modules:**
+The project requires [Pester](https://pester.dev/) 5.x for PowerShell tests. Install via Scoop:
+
+```powershell
+scoop install pester
+```
+
+Or from PowerShell Gallery:
+
+```powershell
+Install-Module -Name Pester -MinimumVersion 5.0.0 -Force
+```
+
+The `build.ps1 -install` script will check for Pester and attempt to install it via Scoop if missing.
+
+### Running Tests
+
 To execute the test suite, call pytest from the virtual environment:
 
 ```shell
 .venv/Scripts/pytest
 ```
+
+This will run both Python tests (`test_*.py`) and PowerShell Pester tests (`*.Tests.ps1`).
 
 For those using [VS Code](https://code.visualstudio.com/) there are tasks defined for the most common commands:
 
