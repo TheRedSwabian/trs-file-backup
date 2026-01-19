@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v1.0.0 (2026-01-19)
+
+### Features
+
+- Change backupfile name extend help information
+  ([`4d97800`](https://github.com/TheRedSwabian/trs-file-backup/commit/4d97800328a9d5b659043725d8259513381fd6ab))
+
+
 ## v0.1.0 (2026-01-16)
 
 ### Bug Fixes
