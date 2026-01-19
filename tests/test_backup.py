@@ -19,7 +19,7 @@ class TestFileOperations:
 
         result = BackupManager.generate_backup_filename("report.txt", test_time)
 
-        assert result == "2026_01_13__14_30_22__report.txt"
+        assert result == "report_2026_01_13__14_30_22.txt"
 
     def test_generate_backup_filename_with_path(self) -> None:
         """Test backup filename generation strips path and keeps only filename."""
@@ -29,7 +29,7 @@ class TestFileOperations:
 
         result = BackupManager.generate_backup_filename("subdir/report.txt", test_time)
 
-        assert result == "2026_01_13__14_30_22__report.txt"
+        assert result == "report_2026_01_13__14_30_22.txt"
 
     def test_matches_exclusion_pattern_exact_match(self) -> None:
         """Test exact filename match in exclusion patterns."""
@@ -209,7 +209,7 @@ class TestFileOperations:
         test_time = datetime(2026, 1, 13, 14, 30, 22)
         result = manager.backup_file(source_file, test_time)
 
-        expected_dest = Path("/dest") / "2026_01_13__14_30_22__file.txt"
+        expected_dest = Path("/dest") / "file_2026_01_13__14_30_22.txt"
         mock_copy.assert_called_once_with(source_file, expected_dest)
         assert result == expected_dest
 

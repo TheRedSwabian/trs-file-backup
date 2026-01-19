@@ -19,6 +19,13 @@ app = typer.Typer(
     name="trs-file-backup",
     help="trs-file-backup - Monitor and backup modified files with timestamps",
     add_completion=False,
+    epilog="""\b
+Examples:
+  trs-file-backup run --source ./myproject --destination ./backup
+  trs-file-backup watch --source ./myproject --destination ./backup
+
+Use 'trs-file-backup COMMAND --help' for detailed information on each command.
+""",
 )
 console = Console()
 
@@ -41,19 +48,19 @@ def main(
         help="Show version and exit",
     ),
 ) -> None:
-    """trs-file-backup - Monitor and backup modified files with timestamps.
+    """
+    trs-file-backup - Monitor and backup modified files with timestamps
 
     This tool helps you create timestamped backups of modified files from a
     source directory to a destination directory. It supports one-time backups,
     initialization, and continuous monitoring.
 
-    Use 'trs-file-backup COMMAND --help' for more information on a specific command.
-
+    \b
     Examples:
-
       trs-file-backup run --source ./myproject --destination ./backup
-
       trs-file-backup watch --source ./myproject --destination ./backup
+
+    Use 'trs-file-backup COMMAND --help' for more information on a specific command.
     """
     pass
 

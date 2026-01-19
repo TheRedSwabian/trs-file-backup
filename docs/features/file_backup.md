@@ -33,8 +33,8 @@ The tool shall be implemented as a Python command-line application with comprehe
 **Acceptance Criteria:**
 
 - AC-2.1: The system shall copy each modified file to the destination directory
-- AC-2.2: The destination filename shall follow the pattern: `YYYY_MM_DD__HH_MM_SS__{original_filename}`
-- AC-2.3: Example: `report.txt` → `2026_01_13__14_30_22__report.txt`
+- AC-2.2: The destination filename shall follow the pattern: `{original_filename}_YYYY_MM_DD__HH_MM_SS.{extension}`
+- AC-2.3: Example: `report.txt` → `report_2026_01_13__14_30_22.txt`
 - AC-2.4: The timestamp shall use 24-hour format (HH: 00-23)
 - AC-2.5: All backup files shall be stored flat in the destination directory (no subdirectories)
 - AC-2.6: If the destination directory does not exist, it shall be created automatically
@@ -257,9 +257,9 @@ Examples:
 Scanning source directory: C:\Projects\MyApp
 Found 15 modified files
 Backing up files...
-  ✓ main.py → 2026_01_13__14_30_22__main.py
-  ✓ readme.md → 2026_01_13__14_30_25__readme.md
-  ✓ config.yaml → 2026_01_13__14_30_26__config.yaml
+  ✓ main.py → main_2026_01_13__14_30_22.py
+  ✓ readme.md → readme_2026_01_13__14_30_25.md
+  ✓ config.yaml → config_2026_01_13__14_30_26.yaml
   ...
 Successfully backed up 15 files to C:\Backup\MyApp
 Logging to: C:\Backup\MyApp\backup.log
@@ -275,9 +275,9 @@ Logging to: C:\Backup\MyApp\backup.log
 [2026-01-13 14:30:20] [INFO] Exclusion patterns: .backup_state.json, *.log, temp_*
 [2026-01-13 14:30:20] [INFO] Debounce delay: 2 seconds
 [2026-01-13 14:30:20] [INFO] Found 15 modified files
-[2026-01-13 14:30:22] [INFO] Backed up: main.py → 2026_01_13__14_30_22__main.py
-[2026-01-13 14:30:25] [INFO] Backed up: readme.md → 2026_01_13__14_30_25__readme.md
-[2026-01-13 14:30:26] [INFO] Backed up: config.yaml → 2026_01_13__14_30_26__config.yaml
+[2026-01-13 14:30:22] [INFO] Backed up: main.py → main_2026_01_13__14_30_22.py
+[2026-01-13 14:30:25] [INFO] Backed up: readme.md → readme_2026_01_13__14_30_25.md
+[2026-01-13 14:30:26] [INFO] Backed up: config.yaml → config_2026_01_13__14_30_26.yaml
 [2026-01-13 14:30:27] [WARNING] File excluded: temp.log (matches: *.log)
 [2026-01-13 14:30:28] [WARNING] File locked, skipping: database.db
 [2026-01-13 14:30:30] [INFO] Backup operation completed: 13 of 15 files backed up
@@ -517,10 +517,10 @@ Each execution of the script creates a session with:
 [2026-01-13 14:30:20] [INFO] Exclusion patterns: .backup_state.json, *.log
 [2026-01-13 14:30:20] [INFO] Debounce delay: 2 seconds
 [2026-01-13 14:30:20] [INFO] Found 5 modified files
-[2026-01-13 14:30:22] [INFO] Backed up: main.py → 2026_01_13__14_30_22__main.py
+[2026-01-13 14:30:22] [INFO] Backed up: main.py → main_2026_01_13__14_30_22.py
 [2026-01-13 14:30:25] [WARNING] File excluded: debug.log (matches: *.log)
 [2026-01-13 14:30:26] [ERROR] Permission denied: secure.dat
-[2026-01-13 14:30:28] [INFO] Backed up: readme.md → 2026_01_13__14_30_28__readme.md
+[2026-01-13 14:30:28] [INFO] Backed up: readme.md → readme_2026_01_13__14_30_28.md
 [2026-01-13 14:30:30] [INFO] Backup operation completed: 2 of 5 files backed up
 [2026-01-13 14:30:30] [INFO] ========== Session Ended ==========
 
@@ -532,7 +532,7 @@ Each execution of the script creates a session with:
 [2026-01-13 16:00:00] [INFO] Debounce delay: 2 seconds
 [2026-01-13 16:00:00] [INFO] Watch mode started, monitoring for changes...
 [2026-01-13 16:15:30] [INFO] File modified: config.yaml
-[2026-01-13 16:15:32] [INFO] Backed up: config.yaml → 2026_01_13__16_15_32__config.yaml
+[2026-01-13 16:15:32] [INFO] Backed up: config.yaml → config_2026_01_13__16_15_32.yaml
 [2026-01-13 16:20:00] [INFO] Watch mode stopped by user (Ctrl+C)
 [2026-01-13 16:20:00] [INFO] Session summary: 1 file backed up
 [2026-01-13 16:20:00] [INFO] ========== Session Ended ==========
@@ -560,7 +560,7 @@ Each execution of the script creates a session with:
 - All backup files are stored flat in the destination directory (no subdirectories)- State file (`.backup_state.json`) is stored in the destination directory
 - State file contains both source_path and destination_path for reference- Use `datetime.now()` for timestamp generation in format `YYYY_MM_DD__HH_MM_SS`
 - Timestamp format: `strftime("%Y_%m_%d__%H_%M_%S")` with 24-hour format
-- Backup filename pattern: `{timestamp}__{original_filename}`
+- Backup filename pattern: `{original_filename}_YYYY_MM_DD__HH_MM_SS.{extension}`
 - Implement atomic state file updates (write to temp file, then rename)
 - Use `pathlib.Path.match()` for pattern matching with wildcard support
 - Exclusion patterns are evaluated against filenames only (not paths)

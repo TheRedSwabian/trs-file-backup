@@ -77,7 +77,7 @@ class TestBackupLogger:
         mocker.patch("logging.FileHandler")
 
         logger = BackupLogger(Path("/dest"))
-        logger.log_file_backed_up("file.txt", "2026_01_13__14_30_22__file.txt")
+        logger.log_file_backed_up("file.txt", "file_2026_01_13__14_30_22.txt")
 
         mock_logger.info.assert_called()
         call_str = str(mock_logger.info.call_args)

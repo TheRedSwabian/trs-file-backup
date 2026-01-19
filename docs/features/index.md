@@ -11,7 +11,7 @@ See [File Backup Specification](file_backup.md) for detailed requirements and sp
 - **Top-Level File Monitoring**: Monitors only files in the main directory (subdirectories ignored)
 - **Flat Backup Structure**: All backup files stored in a single directory without subdirectories
 - **Incremental Backup**: Only modified files are backed up after the first run
-- **Timestamped Filenames**: Each backup includes timestamp in format `YYYY_MM_DD__HH_MM_SS__filename.ext`
+- **Timestamped Filenames**: Each backup includes timestamp in format `filename_YYYY_MM_DD__HH_MM_SS.ext`
 - **Smart Exclusions**: Automatically excludes hidden files and subdirectories
 - **Custom Exclusion Patterns**: Support for wildcard patterns via `--exclude` parameter
 - **Configurable Debounce**: Adjustable delay before backup with `--debounce` parameter (default: 2 seconds)

@@ -13,7 +13,7 @@ Script to monitor directories and create timestamped backups of modified files a
 - 📁 **Top-Level Monitoring**: Only monitors files in the main directory, ignores subdirectories
 - 📦 **Flat Backup Structure**: All backups stored in one directory for easy access
 - 🔄 **Incremental Backups**: Only backup files that have changed
-- 🕐 **Timestamped Files**: Each backup uses format `YYYY_MM_DD__HH_MM_SS__filename.ext`
+- 🕐 **Timestamped Files**: Each backup uses format `filename_YYYY_MM_DD__HH_MM_SS.ext`
 - 👁️ **Watch Mode**: Continuously monitor directories and backup automatically
 - ⏱️ **Configurable Debounce**: Adjustable delay before backup (default: 2 seconds)
 - 🎯 **Smart Exclusions**: Automatically skip hidden files
@@ -61,7 +61,7 @@ trs-file-backup run --help
 ### Example Output
 
 Original file: `report.txt`
-Backup file: `2026_01_13__14_30_22__report.txt`
+Backup file: `report_2026_01_13__14_30_22.txt`
 
 ## Commands
 

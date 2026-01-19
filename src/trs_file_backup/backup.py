@@ -40,12 +40,14 @@ class BackupManager:
             timestamp: Timestamp for the backup
 
         Returns:
-            Formatted filename: YYYY_MM_DD__HH_MM_SS__filename
+            Formatted filename: filename_YYYY_MM_DD__HH_MM_SS.ext
         """
         # Extract just the filename if path is included
-        name = Path(filename).name
+        path = Path(filename)
+        name_without_ext = path.stem
+        extension = path.suffix
         timestamp_str = timestamp.strftime("%Y_%m_%d__%H_%M_%S")
-        return f"{timestamp_str}__{name}"
+        return f"{name_without_ext}_{timestamp_str}{extension}"
 
     @staticmethod
     def matches_exclusion_pattern(filename: str, patterns: List[str]) -> bool:
