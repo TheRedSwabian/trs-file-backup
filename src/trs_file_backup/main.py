@@ -493,6 +493,7 @@ def watch(
       - Debounce prevents backing up files that are still being written
       - Hidden directories (starting with .) are automatically excluded
     """
+    logger = None
     try:
         # Add default exclusions
         excluded_patterns = [".backup_state.json", *exclude]

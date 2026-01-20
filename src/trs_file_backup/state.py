@@ -88,12 +88,15 @@ class StateManager:
         }
 
         # Write to temp file first (atomic operation)
+        import os
+
         temp_file = self.state_file_path.with_suffix(".json.tmp")
         with open(temp_file, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
 
         # Rename temp file to actual file (atomic on most filesystems)
-        temp_file.rename(self.state_file_path)
+        # Use os.replace for cross-platform atomic replacement
+        os.replace(str(temp_file), str(self.state_file_path))
 
     def update_file_timestamp(self, filename: str, timestamp: float) -> None:
         """Update or add file timestamp.

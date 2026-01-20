@@ -66,7 +66,7 @@ class TestStateManager:
         mock_file = mock_open()
         mocker.patch("pathlib.Path.mkdir", return_value=None)
         mocker.patch("builtins.open", mock_file)
-        mocker.patch("pathlib.Path.rename", return_value=None)
+        mocker.patch("os.replace", return_value=None)
         mocker.patch("pathlib.Path.exists", return_value=False)
 
         state = StateManager(
@@ -90,13 +90,13 @@ class TestStateManager:
         assert saved_data["log_file"] == "backup.log"
 
     def test_save_state_atomic_write(self, mocker: MockFixture) -> None:
-        """Test that save uses atomic write (temp file + rename)."""
+        """Test that save uses atomic write (temp file + os.replace)."""
         from trs_file_backup.state import StateManager
 
         mock_file = mock_open()
         _mock_mkdir = mocker.patch("pathlib.Path.mkdir")
         mock_open_func = mocker.patch("builtins.open", mock_file)
-        mock_rename = mocker.patch("pathlib.Path.rename")
+        mock_replace = mocker.patch("os.replace")
         mocker.patch("pathlib.Path.exists", return_value=False)
 
         state = StateManager(
@@ -115,8 +115,8 @@ class TestStateManager:
         temp_file_path = str(call_args[0][0][0])
         assert ".tmp" in temp_file_path or "tmp" in temp_file_path.lower()
 
-        # Check that rename was called (atomic operation)
-        mock_rename.assert_called_once()
+        # Check that os.replace was called (atomic operation)
+        mock_replace.assert_called_once()
 
     def test_update_file_timestamp(self, mocker: MockFixture) -> None:
         """Test updating timestamp for a file."""
