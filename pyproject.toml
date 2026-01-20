@@ -32,7 +32,7 @@ pytest = "^8.3"
 pytest-cov = "^6.0"
 pytest-mock = "^3.14"
 python-semantic-release = "^9.1"
-ruff = "^0.3"
+ruff = "^0"
 pypeline-runner = "^1.6"
 pre-commit = "^4.0"
 
