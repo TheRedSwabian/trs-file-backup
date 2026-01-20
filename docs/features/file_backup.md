@@ -418,15 +418,14 @@ Watching for changes... (Press Ctrl+C to stop)
 Logging to: C:\Backup\MyApp\backup.log
 
 [2026-01-13 14:32:15] File modified: main.py
-[2026-01-13 14:32:17] Backing up: main.py → 2026_01_13__14_32_17__main.py ✓
+[2026-01-13 14:32:17] Backing up: main.py -> main_2026_01_13__14_32_17.py OK
 
 [2026-01-13 14:35:22] File modified: readme.md
-[2026-01-13 14:35:24] Backing up: readme.md → 2026_01_13__14_35_24__readme.md ✓
+[2026-01-13 14:35:24] Backing up: readme.md -> readme_2026_01_13__14_35_24.md OK
 
 [2026-01-13 14:38:10] File modified: temp.log (excluded)
 
 Ctrl+C detected. Stopping file system monitor...
-Total files backed up in this session: 2
 ```
 
 **Log File Example (backup.log):**
@@ -440,9 +439,9 @@ Total files backed up in this session: 2
 [2026-01-13 14:32:00] [INFO] Debounce delay: 2 seconds
 [2026-01-13 14:32:00] [INFO] Watch mode started, monitoring for changes...
 [2026-01-13 14:32:15] [INFO] File modified: main.py
-[2026-01-13 14:32:17] [INFO] Backed up: main.py → 2026_01_13__14_32_17__main.py
+[2026-01-13 14:32:17] [INFO] Backed up: main.py → main_2026_01_13__14_32_17.py
 [2026-01-13 14:35:22] [INFO] File modified: readme.md
-[2026-01-13 14:35:24] [INFO] Backed up: readme.md → 2026_01_13__14_35_24__readme.md
+[2026-01-13 14:35:24] [INFO] Backed up: readme.md → readme_2026_01_13__14_35_24.md
 [2026-01-13 14:38:10] [WARNING] File excluded: temp.log (matches: *.log)
 [2026-01-13 14:40:00] [INFO] Watch mode stopped by user (Ctrl+C)
 [2026-01-13 14:40:00] [INFO] Session summary: 2 files backed up
