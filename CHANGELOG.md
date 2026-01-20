@@ -1,6 +1,16 @@
 # CHANGELOG
 
 
+## v1.0.1 (2026-01-20)
+
+### Bug Fixes
+
+- Prevent duplicate backups from rapid filesystem events on Windows
+  ([`d2db3f5`](https://github.com/TheRedSwabian/trs-file-backup/commit/d2db3f5c1b983ae3cd6d1405ce784fff7c711df4))
+
+Implement debounce mechanism to consolidate multiple events per file into single backup.
+
+
 ## v1.0.0 (2026-01-19)
 
 ### Features
