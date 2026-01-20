@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "trs-file-backup"
-version = "1.0.3"
+version = "1.0.4"
 description = "Script to backup changed filed in a given Folder."
 authors = ["R. Reiner <201968951+TheRedSwabian@users.noreply.github.com>"]
 license = "MIT"

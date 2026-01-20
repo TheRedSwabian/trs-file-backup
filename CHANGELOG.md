@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v1.0.4 (2026-01-20)
+
+### Bug Fixes
+
+- Add blank lines after session end for better log readability
+  ([`f6f4fb2`](https://github.com/TheRedSwabian/trs-file-backup/commit/f6f4fb200f1c1ad0870b7d5ca1518df2714f5a35))
+
+
 ## v1.0.3 (2026-01-20)
 
 ### Bug Fixes

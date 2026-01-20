@@ -20,7 +20,7 @@ for path in ["src", "tests"]:
 project = "trs-file-backup"
 copyright = "2026, R. Reiner"
 author = "R. Reiner"
-release = "1.0.3"
+release = "1.0.4"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
