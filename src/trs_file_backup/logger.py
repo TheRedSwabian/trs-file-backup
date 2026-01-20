@@ -80,6 +80,10 @@ class BackupLogger:
         if files_total > 0:
             self.logger.info(f"Session summary: {files_backed_up} of {files_total} files backed up")
         self.logger.info("=" * 10 + " Session Ended " + "=" * 10)
+        # Add three blank lines for better session separation
+        self.logger.info("")
+        self.logger.info("")
+        self.logger.info("")
 
     def log_init_success(self) -> None:
         """Log successful initialization."""

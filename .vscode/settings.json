@@ -49,6 +49,7 @@
     "git add": true,
     ".\\create-portable.ps1": true,
     "git commit": true,
-    "git push": true
+    "git push": true,
+    "git fetch": true
   }
 }
