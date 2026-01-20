@@ -502,13 +502,13 @@ class TestBackupEventHandler:
 
         handler.on_modified(event)
 
-        # Should log exclusion but not backup
+        # Should log exclusion and not add to pending
         logger.log_file_excluded.assert_called_once()
+        assert file_path not in handler.pending_files
         manager.backup_file.assert_not_called()
 
     def test_event_handler_debounces_rapid_changes(self, tmp_path: Path, mocker: MockFixture) -> None:
         """Test that event handler tracks file modification time for debouncing."""
-        from pathlib import Path
         from unittest.mock import Mock
 
         from watchdog.events import FileModifiedEvent
@@ -527,8 +527,9 @@ class TestBackupEventHandler:
         logger = Mock()
         state = Mock()
 
-        # Mock time.sleep to avoid actual waiting
-        mocker.patch("time.sleep")
+        # Mock time.time for debounce control
+        mock_time = mocker.patch("time.time")
+        mock_time.return_value = 100.0
 
         handler = BackupEventHandler(manager, state, logger, 2)
 
@@ -538,13 +539,27 @@ class TestBackupEventHandler:
         event = FileModifiedEvent(str(file_path))
         event.is_directory = False
 
-        # File modification triggers backup after debounce
+        # First event: should add to pending
         handler.on_modified(event)
+        assert file_path in handler.pending_files
+        assert handler.pending_files[file_path] == 100.0
 
-        # Should backup and track in pending_files
-        assert manager.backup_file.call_count == 1
-        # File should be removed from pending after successful backup
-        assert Path(event.src_path) not in handler.pending_files
+        # Second event immediately after: should update timestamp
+        mock_time.return_value = 100.5
+        handler.on_modified(event)
+        assert handler.pending_files[file_path] == 100.5
+
+        # Process before debounce window: should not backup
+        mock_time.return_value = 101.0
+        handler.process_pending_files()
+        manager.backup_file.assert_not_called()
+        assert file_path in handler.pending_files
+
+        # Process after debounce window: should backup and remove from pending
+        mock_time.return_value = 103.0
+        handler.process_pending_files()
+        manager.backup_file.assert_called_once()
+        assert file_path not in handler.pending_files
 
     def test_event_handler_handles_permission_error(self, tmp_path: Path, mocker: MockFixture) -> None:
         """Test that event handler handles permission errors gracefully."""
@@ -565,8 +580,9 @@ class TestBackupEventHandler:
         logger = Mock()
         state = Mock()
 
-        # Mock time.sleep
-        mocker.patch("time.sleep")
+        # Mock time.time
+        mock_time = mocker.patch("time.time")
+        mock_time.return_value = 100.0
 
         handler = BackupEventHandler(manager, state, logger, 1)
 
@@ -576,11 +592,18 @@ class TestBackupEventHandler:
         event = FileModifiedEvent(str(file_path))
         event.is_directory = False
 
+        # Trigger event
         handler.on_modified(event)
+        assert file_path in handler.pending_files
 
-        # Should log error for permission denied
+        # Process after debounce: should handle permission error
+        mock_time.return_value = 102.0
+        handler.process_pending_files()
+
+        # Should log error and remove from pending
         logger.log_error.assert_called_once()
         manager.backup_file.assert_called_once()
+        assert file_path not in handler.pending_files
 
     def test_event_handler_handles_os_error(self, tmp_path: Path, mocker: MockFixture) -> None:
         """Test that event handler handles OS errors gracefully."""
@@ -601,8 +624,9 @@ class TestBackupEventHandler:
         logger = Mock()
         state = Mock()
 
-        # Mock time.sleep
-        mocker.patch("time.sleep")
+        # Mock time.time
+        mock_time = mocker.patch("time.time")
+        mock_time.return_value = 100.0
 
         handler = BackupEventHandler(manager, state, logger, 1)
 
@@ -612,11 +636,18 @@ class TestBackupEventHandler:
         event = FileModifiedEvent(str(file_path))
         event.is_directory = False
 
+        # Trigger event
         handler.on_modified(event)
+        assert file_path in handler.pending_files
 
-        # Should log the locked file
+        # Process after debounce: should handle OS error
+        mock_time.return_value = 102.0
+        handler.process_pending_files()
+
+        # Should log locked file and remove from pending
         logger.log_file_locked.assert_called_once()
         manager.backup_file.assert_called_once()
+        assert file_path not in handler.pending_files
 
     def test_event_handler_successful_backup(self, tmp_path: Path, mocker: MockFixture) -> None:
         """Test that event handler successfully backs up modified files."""
@@ -638,8 +669,9 @@ class TestBackupEventHandler:
         logger = Mock()
         state = Mock()
 
-        # Mock time.sleep
-        mocker.patch("time.sleep")
+        # Mock time.time
+        mock_time = mocker.patch("time.time")
+        mock_time.return_value = 100.0
 
         handler = BackupEventHandler(manager, state, logger, 1)
 
@@ -649,12 +681,20 @@ class TestBackupEventHandler:
         event = FileModifiedEvent(str(file_path))
         event.is_directory = False
 
+        # Trigger event
         handler.on_modified(event)
+        assert file_path in handler.pending_files
+
+        # Process after debounce: should backup successfully
+        mock_time.return_value = 102.0
+        handler.process_pending_files()
 
         # Should backup and update state
         manager.backup_file.assert_called_once()
         logger.log_file_backed_up.assert_called_once()
         state.update_file_timestamp.assert_called_once()
+        state.save.assert_called_once()
+        assert file_path not in handler.pending_files
 
 
 class TestMainApp:

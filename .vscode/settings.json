@@ -43,6 +43,9 @@
     },
     ".venv/Scripts/python": true,
     ".venv/Scripts/bcs": true,
-    ".venv/Scripts/pytest": true
+    ".venv/Scripts/pytest": true,
+    ".\\.venv\\Scripts\\Activate.ps1": true,
+    "pypeline": true,
+    "git add": true
   }
 }

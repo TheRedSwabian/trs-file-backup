@@ -383,15 +383,27 @@ class BackupEventHandler(FileSystemEventHandler):
         self.logger.log_file_modified(file_path.name)
         console.print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] File modified: {file_path.name}")
 
-        # Schedule backup after debounce
+        # Update timestamp for this file (extends debounce window if already pending)
         self.pending_files[file_path] = time.time()
 
-        # Wait for debounce
-        time.sleep(self.debounce_seconds)
+    def process_pending_files(self) -> None:
+        """Process pending files that have passed the debounce window."""
+        now = time.time()
+        files_to_backup = []
 
-        # Check if file is still pending (not modified again)
-        if file_path in self.pending_files:
+        # Find files that have passed debounce window
+        for file_path, event_time in list(self.pending_files.items()):
+            if now - event_time >= self.debounce_seconds:
+                files_to_backup.append(file_path)
+
+        # Backup files that passed debounce
+        for file_path in files_to_backup:
             try:
+                # Check if file still exists and is not locked
+                if not file_path.exists():
+                    del self.pending_files[file_path]
+                    continue
+
                 timestamp = datetime.now()
                 backup_path = self.backup_manager.backup_file(file_path, timestamp)
 
@@ -411,10 +423,12 @@ class BackupEventHandler(FileSystemEventHandler):
             except PermissionError:
                 self.logger.log_error(f"Permission denied: {file_path.name}")
                 console.print(f"[red]ERROR[/red] Permission denied: {file_path.name}")
+                del self.pending_files[file_path]
 
             except OSError:
                 self.logger.log_file_locked(file_path.name)
                 console.print(f"[yellow]WARNING[/yellow] File locked, skipping: {file_path.name}")
+                del self.pending_files[file_path]
 
 
 @app.command()
@@ -536,7 +550,9 @@ def watch(
 
         try:
             while True:
-                time.sleep(1)
+                # Check for pending files to backup
+                event_handler.process_pending_files()
+                time.sleep(0.5)  # Check every 0.5 seconds
         except KeyboardInterrupt:
             observer.stop()
             logger.log_watch_stopped()
