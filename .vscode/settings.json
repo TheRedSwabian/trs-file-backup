@@ -46,6 +46,8 @@
     ".venv/Scripts/pytest": true,
     ".\\.venv\\Scripts\\Activate.ps1": true,
     "pypeline": true,
-    "git add": true
+    "git add": true,
+    ".\\create-portable.ps1": true,
+    "git commit": true
   }
 }

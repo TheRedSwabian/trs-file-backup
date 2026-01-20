@@ -3,7 +3,7 @@
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, List
 
 import typer
 from rich.console import Console
@@ -19,6 +19,7 @@ app = typer.Typer(
     name="trs-file-backup",
     help="trs-file-backup - Monitor and backup modified files with timestamps",
     add_completion=False,
+    rich_markup_mode="rich",
     epilog="""\b
 Examples:
   trs-file-backup run --source ./myproject --destination ./backup
@@ -33,19 +34,19 @@ console = Console()
 def version_callback(value: bool) -> None:
     """Show version and exit."""
     if value:
-        console.print(f"trs-file-backup version {__version__}")
-        raise typer.Exit()
+        print(f"trs-file-backup version {__version__}")
+        raise typer.Exit(0)
 
 
-@app.callback()
+@app.callback(invoke_without_command=True)
 def main(
-    version: Optional[bool] = typer.Option(
-        None,
+    ctx: typer.Context,
+    version: bool = typer.Option(
+        False,
         "--version",
         "-v",
-        callback=version_callback,
-        is_eager=True,
         help="Show version and exit",
+        is_eager=True,
     ),
 ) -> None:
     """
@@ -55,6 +56,9 @@ def main(
     source directory to a destination directory. It supports one-time backups,
     initialization, and continuous monitoring.
 
+    Options:
+      -v, --version    Show version and exit
+
     \b
     Examples:
       trs-file-backup run --source ./myproject --destination ./backup
@@ -62,7 +66,11 @@ def main(
 
     Use 'trs-file-backup COMMAND --help' for more information on a specific command.
     """
-    pass
+    if version:
+        version_callback(True)
+
+    if ctx.invoked_subcommand is None:
+        console.print(ctx.get_help())
 
 
 @app.command()
@@ -559,7 +567,6 @@ def watch(
             logger.log_session_end(event_handler.backed_up_count, event_handler.backed_up_count)
 
             console.print("\n\nCtrl+C detected. Stopping file system monitor...")
-            console.print(f"Total files backed up in this session: {event_handler.backed_up_count}")
 
         observer.join()
 
