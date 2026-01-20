@@ -1,6 +1,17 @@
 # CHANGELOG
 
 
+## v1.0.2 (2026-01-20)
+
+### Bug Fixes
+
+- Improve version handling and remove redundant output
+  ([`ca9348e`](https://github.com/TheRedSwabian/trs-file-backup/commit/ca9348e46ad5925f352c51029dace65ba69388da))
+
+- Show --version flag in help output and make it functional - Remove duplicate session summary
+  message on watch stop - Clean dist directory before build to prevent stale wheel packages
+
+
 ## v1.0.1 (2026-01-20)
 
 ### Bug Fixes
