@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v1.0.3 (2026-01-20)
+
+### Bug Fixes
+
+- Windows atomic write and test compatibility
+  ([`f7b441c`](https://github.com/TheRedSwabian/trs-file-backup/commit/f7b441cb91a3a89f405b271a1d0686e9849a1625))
+
+
 ## v1.0.2 (2026-01-20)
 
 ### Bug Fixes
