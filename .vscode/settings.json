@@ -30,26 +30,7 @@
   },
   "peacock.color": "#93e9fb",
   "chat.tools.terminal.autoApprove": {
-    ".\\.venv\\Scripts\\pypeline.exe": true,
-    "Test-Path": true,
-    "where.exe": true,
-    "Get-Command": true,
-    ".\\.venv\\Scripts\\pytest.exe": true,
-    ".venv/Scripts/pypeline": true,
-    "trs-file-backup": true,
-    "/^python -m trs-file-backup --help$/": {
-      "approve": true,
-      "matchCommandLine": true
-    },
-    ".venv/Scripts/python": true,
-    ".venv/Scripts/bcs": true,
-    ".venv/Scripts/pytest": true,
-    ".\\.venv\\Scripts\\Activate.ps1": true,
-    "pypeline": true,
-    "git add": true,
-    ".\\create-portable.ps1": true,
-    "git commit": true,
-    "git push": true,
-    "git fetch": true
-  }
+    "/.*/": true
+  },
+  "chat.tools.terminal.ignoreDefaultAutoApproveRules": true
 }
