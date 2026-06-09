@@ -138,3 +138,7 @@ cython_debug/
 
 # bootstrap files are downloaded during installation
 /.bootstrap
+
+# Local development planning files - kept for temporary use during development
+ROADMAP.md
+REVIEW.md
