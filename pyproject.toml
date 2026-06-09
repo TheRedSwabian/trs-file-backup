@@ -45,13 +45,8 @@ version_variables = [
 ]
 build_command = "uv build"
 
-[tool.semantic_release.branches.main]
+[tool.semantic_release.branches.develop]
 match = "develop"
-prerelease = false
-
-[tool.semantic_release.branches.noop]
-match = "(?!develop$)"
-prerelease = true
 
 [tool.semantic_release.changelog]
 exclude_commit_patterns = [
