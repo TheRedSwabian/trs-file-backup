@@ -3,9 +3,9 @@
 Script to monitor directories and create timestamped backups of modified files automatically.
 
 ![maintained](https://img.shields.io/badge/maintained-yes-success?style=flat-square)
-![license](https://img.shields.io/badge/license-MQ--internal-009b9b?style=flat-square)
+![license](https://img.shields.io/badge/license-MIT-009b9b?style=flat-square)
 ![ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)
-![pypeline](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/cuinixam/pypeline/main/assets/badge/v0.json)
+![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)
 [![Build Status](https://github.com/TheRedSwabian/trs-file-backup/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/TheRedSwabian/trs-file-backup/actions)
 
 ## Features
@@ -73,14 +73,11 @@ Use `trs-file-backup COMMAND --help` for detailed information on each command.
 
 ## Start developing
 
-The project uses Poetry for dependencies management and packaging.
-Run the `build.ps1` script to install Python and create the virtual environment.
+The project uses [uv](https://docs.astral.sh/uv/) for dependency management and packaging.
 
 ```powershell
-.\build.ps1 -install
+uv sync --all-groups
 ```
-
-This will also generate a `poetry.lock` file, you should track this file in version control.
 
 ### Prerequisites
 
@@ -174,7 +171,7 @@ This repository uses [semantic release](https://python-semantic-release.readthed
 
 The version is automatically determined by analyzing commit messages since the last release:
 
-1. **Jenkins Build**: When the `develop` branch is built, semantic-release analyzes all commits
+1. **GitHub Actions**: When the `develop` branch is pushed, semantic-release analyzes all commits
 2. **Version Calculation**: Based on commit types (feat, fix, BREAKING CHANGE)
 3. **Automatic Updates**: Version is updated in:
    - `pyproject.toml`
@@ -194,7 +191,7 @@ __version__ = "1.2.3"
 
 ```toml
 # pyproject.toml
-[tool.poetry]
+[project]
 version = "1.2.3"
 ```
 
@@ -202,23 +199,20 @@ version = "1.2.3"
 
 1. Develop on feature branches with conventional commits
 2. Merge to `develop` branch
-3. Jenkins automatically:
+3. GitHub Actions automatically:
    - Analyzes commits
    - Bumps version
    - Updates CHANGELOG.md
-   - Creates git tag
-4. When the tag build is triggered on Jenkins, the `release.bat` publishes the new version to the PyPI repository
+   - Creates git tag and GitHub release
 
 ### Manual Version Check
 
 To check the current version:
 
 ```bash
-poetry version
-# or
 python -c "from trs_file_backup import __version__; print(__version__)"
 ```
 
 ## Credits
 
-This package was created with [Copier](https://copier.readthedocs.io/) and the [sple/pypackage-template](https://git.example.com/projects/SPLE/repos/pypackage-template) project template.
+This package was created with [Copier](https://copier.readthedocs.io/).

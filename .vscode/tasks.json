@@ -3,7 +3,7 @@
   "tasks": [
     {
       "label": "Install",
-      "command": "./build.ps1 -install",
+      "command": "uv sync --all-groups",
       "type": "shell",
       "presentation": {
         "reveal": "always"
@@ -15,7 +15,7 @@
     },
     {
       "label": "static analysis",
-      "command": ".venv/Scripts/pypeline run --step StaticAnalysis --single",
+      "command": "uv run pre-commit run --all-files",
       "type": "shell",
       "presentation": {
         "reveal": "always"
@@ -27,7 +27,7 @@
     },
     {
       "label": "run tests",
-      "command": ".venv/Scripts/pypeline run --step ExecuteTests --single",
+      "command": "uv run pytest",
       "type": "shell",
       "presentation": {
         "reveal": "always"
@@ -39,7 +39,7 @@
     },
     {
       "label": "generate docs",
-      "command": ".venv/Scripts/pypeline run --step GenerateDocs --single",
+      "command": "uv run sphinx-build -b html docs build/docs/html",
       "type": "shell",
       "presentation": {
         "reveal": "always"

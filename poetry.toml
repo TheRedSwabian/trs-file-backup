@@ -1,6 +1,0 @@
-[virtualenvs]
-in-project = true
-
-[repositories]
-pypi-publish-snapshot = { url = "https://artifactory.example.com/artifactory/api/pypi/aspl-pypi-snapshot-rietheim" }
-pypi-publish-release = { url = "https://artifactory.example.com/artifactory/api/pypi/aspl-pypi-release-rietheim" }
