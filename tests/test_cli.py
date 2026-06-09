@@ -3,10 +3,17 @@
 from pathlib import Path
 from unittest.mock import Mock
 
+import click
+from click.testing import Result as ClickResult
 from pytest_mock import MockFixture
 from typer.testing import CliRunner
 
 runner = CliRunner()
+
+
+def _help_output(result: ClickResult) -> str:
+    """Get CLI output stripped of ANSI escape codes for reliable assertions."""
+    return click.unstyle(result.output).lower()
 
 
 class TestInitCommand:
@@ -449,9 +456,8 @@ class TestBackupEventHandler:
         """Test that event handler ignores directory modification events."""
         from unittest.mock import Mock
 
-        from watchdog.events import FileModifiedEvent
-
         from trs_file_backup.main import BackupEventHandler
+        from watchdog.events import FileModifiedEvent
 
         source = tmp_path / "source"
         source.mkdir()
@@ -480,9 +486,8 @@ class TestBackupEventHandler:
         """Test that event handler ignores files matching exclusion patterns."""
         from unittest.mock import Mock
 
-        from watchdog.events import FileModifiedEvent
-
         from trs_file_backup.main import BackupEventHandler
+        from watchdog.events import FileModifiedEvent
 
         source = tmp_path / "source"
         source.mkdir()
@@ -513,9 +518,8 @@ class TestBackupEventHandler:
         """Test that event handler tracks file modification time for debouncing."""
         from unittest.mock import Mock
 
-        from watchdog.events import FileModifiedEvent
-
         from trs_file_backup.main import BackupEventHandler
+        from watchdog.events import FileModifiedEvent
 
         source = tmp_path / "source"
         source.mkdir()
@@ -567,9 +571,8 @@ class TestBackupEventHandler:
         """Test that event handler handles permission errors gracefully."""
         from unittest.mock import Mock
 
-        from watchdog.events import FileModifiedEvent
-
         from trs_file_backup.main import BackupEventHandler
+        from watchdog.events import FileModifiedEvent
 
         source = tmp_path / "source"
         source.mkdir()
@@ -611,9 +614,8 @@ class TestBackupEventHandler:
         """Test that event handler handles OS errors gracefully."""
         from unittest.mock import Mock
 
-        from watchdog.events import FileModifiedEvent
-
         from trs_file_backup.main import BackupEventHandler
+        from watchdog.events import FileModifiedEvent
 
         source = tmp_path / "source"
         source.mkdir()
@@ -655,9 +657,8 @@ class TestBackupEventHandler:
         """Test that event handler successfully backs up modified files."""
         from unittest.mock import Mock
 
-        from watchdog.events import FileModifiedEvent
-
         from trs_file_backup.main import BackupEventHandler
+        from watchdog.events import FileModifiedEvent
 
         source = tmp_path / "source"
         source.mkdir()
@@ -709,9 +710,9 @@ class TestMainApp:
         result = runner.invoke(app, ["--help"])
 
         assert result.exit_code == 0
-        assert "run" in result.stdout.lower()
-        assert "init" in result.stdout.lower()
-        assert "watch" in result.stdout.lower()
+        assert "run" in _help_output(result)
+        assert "init" in _help_output(result)
+        assert "watch" in _help_output(result)
 
     def test_main_version_flag(self, mocker: MockFixture) -> None:
         """Test that version flag works."""
@@ -728,9 +729,9 @@ class TestMainApp:
         result = runner.invoke(app, ["init", "--help"])
 
         assert result.exit_code == 0
-        assert "source" in result.stdout.lower()
-        assert "destination" in result.stdout.lower()
-        assert "exclude" in result.stdout.lower()
+        assert "source" in _help_output(result)
+        assert "destination" in _help_output(result)
+        assert "exclude" in _help_output(result)
 
     def test_run_help(self, mocker: MockFixture) -> None:
         """Test run command help."""
@@ -739,9 +740,9 @@ class TestMainApp:
         result = runner.invoke(app, ["run", "--help"])
 
         assert result.exit_code == 0
-        assert "source" in result.stdout.lower()
-        assert "destination" in result.stdout.lower()
-        assert "dry-run" in result.stdout.lower()
+        assert "source" in _help_output(result)
+        assert "destination" in _help_output(result)
+        assert "dry-run" in _help_output(result)
 
     def test_watch_help(self, mocker: MockFixture) -> None:
         """Test watch command help."""
@@ -750,6 +751,6 @@ class TestMainApp:
         result = runner.invoke(app, ["watch", "--help"])
 
         assert result.exit_code == 0
-        assert "source" in result.stdout.lower()
-        assert "destination" in result.stdout.lower()
-        assert "debounce" in result.stdout.lower()
+        assert "source" in _help_output(result)
+        assert "destination" in _help_output(result)
+        assert "debounce" in _help_output(result)
