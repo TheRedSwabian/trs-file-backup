@@ -90,8 +90,8 @@ html_logo = "_static/python-logo-only.svg"
 html_favicon = "_static/empty_favicon.ico"
 html_theme_options = {
     "home_page_in_toc": True,
-    "repository_provider": "bitbucket",
-    "repository_url": "https://git.example.com/projects/SPLE/repos/pypackage-template",
+    "repository_provider": "github",
+    "repository_url": "https://github.com/TheRedSwabian/trs-file-backup",
     "repository_branch": "develop",
     "path_to_docs": "docs",
     "use_repository_button": True,

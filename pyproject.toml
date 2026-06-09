@@ -1,58 +1,49 @@
-[tool.poetry]
+[project]
 name = "trs-file-backup"
 version = "1.0.4"
-description = "Script to backup changed filed in a given Folder."
-authors = ["R. Reiner <201968951+TheRedSwabian@users.noreply.github.com>"]
-license = "MIT"
+description = "Script to backup changed files in a given folder."
+authors = [{ name = "Ruediger Reiner" }]
+license = { text = "MIT" }
 readme = "README.md"
-packages = [
-    { include = "trs_file_backup", from = "src" },
+requires-python = ">=3.10"
+dependencies = [
+    "py-app-dev>=2.6",
+    "typer>=0.16",
+    "rich>=13.7",
+    "watchdog>=4.0",
 ]
 
-[tool.poetry.scripts]
+[project.scripts]
 bcs = "trs_file_backup.main:app"
 trs-file-backup = "trs_file_backup.main:app"
 
-[[tool.poetry.source]]
-name = "pypi"
-url = "https://artifactory.example.com/artifactory/api/pypi/aspl-pypi-release-virtual/simple"
-priority = "primary"
-
-[tool.poetry.dependencies]
-python = "^3.10"
-py-app-dev = "^2.6"
-typer = "^0.16"
-pypeline-runner = "^1.14"
-pypeline-semantic-release = "^0.4"
-rich = "^13.7"
-watchdog = "^4.0"
-
-[tool.poetry.group.dev.dependencies]
-pytest = "^8.3"
-pytest-cov = "^6.0"
-pytest-mock = "^3.14"
-python-semantic-release = "^9.1"
-ruff = "^0"
-pypeline-runner = "^1.6"
-pre-commit = "^4.0"
-
-[tool.poetry.group.docs.dependencies]
-myst-parser = ">=0.16"
-sphinx = ">=4.0"
-sphinxcontrib-mermaid = "^0.9"
-mlx-traceability = "^10.0"
-sphinx-copybutton = "^0.5"
-sphinx-new-tab-link = "^0.2"
-sphinx-book-theme = "^1.1"
-sphinx-design = "^0.5"
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "pytest-mock>=3.14",
+    "python-semantic-release>=9.1",
+    "ruff>=0",
+    "pre-commit>=4.0",
+]
+docs = [
+    "myst-parser>=0.16",
+    "sphinx>=4.0",
+    "sphinxcontrib-mermaid>=0.9",
+    "mlx-traceability>=10.0",
+    "sphinx-copybutton>=0.5",
+    "sphinx-new-tab-link>=0.2",
+    "sphinx-book-theme>=1.1",
+    "sphinx-design>=0.5",
+]
 
 [tool.semantic_release]
-version_toml = ["pyproject.toml:tool.poetry.version"]
+version_toml = ["pyproject.toml:project.version"]
 version_variables = [
     "src/trs_file_backup/__init__.py:__version__",
     "docs/conf.py:release",
 ]
-build_command = ".venv/Scripts/poetry build"
+build_command = "uv build"
 
 [tool.semantic_release.branches.main]
 match = "develop"
@@ -72,9 +63,7 @@ exclude_commit_patterns = [
 keep_trailing_newline = true
 
 [tool.semantic_release.remote]
-type = "bitbucket"
-domain = "git.example.com"
-api_domain = "api.git.example.com"
+type = "github"
 
 [tool.pytest.ini_options]
 addopts = "-vv -Wdefault --cov=trs_file_backup --cov-report=term-missing:skip-covered --capture=tee-sys --junitxml=build/tests/test-report.xml"
@@ -117,10 +106,6 @@ lint.select = [
     "I",   # isort
     "RUF", # ruff specific
 ]
-exclude = [
-    "bootstrap.py"
-]
-
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*" = [
     "D100",
@@ -130,7 +115,6 @@ exclude = [
     "D104",
     "S101",
 ]
-"setup.py" = ["D100"]
 "conftest.py" = ["D100"]
 "docs/conf.py" = ["D100"]
 
@@ -149,7 +133,6 @@ warn_unreachable = true
 warn_unused_ignores = true
 exclude = [
     'docs/.*',
-    'setup.py',
 ]
 
 [[tool.mypy.overrides]]
@@ -161,5 +144,8 @@ module = "docs.*"
 ignore_errors = true
 
 [build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/trs_file_backup"]

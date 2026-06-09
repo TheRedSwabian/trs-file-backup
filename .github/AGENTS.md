@@ -2,17 +2,17 @@
 
 ## Project Overview
 
-This is a Python CLI tool for monitoring directories and creating timestamped backups of modified files. The project uses Poetry for dependency management and follows strict conventional commit standards.
+This is a Python CLI tool for monitoring directories and creating timestamped backups of modified files. The project uses uv for dependency management and follows strict conventional commit standards.
 
 ## Key Technologies
 
 - **Language**: Python 3.10+
 - **CLI Framework**: Typer + Rich (for terminal UI)
 - **File Watching**: Watchdog
-- **Build Tool**: Poetry
+- **Build Tool**: uv + hatchling
 - **Testing**: Pytest + Pester (PowerShell tests)
 - **Linting**: Ruff
-- **CI/CD**: Jenkins with pypeline-runner
+- **CI/CD**: GitHub Actions with semantic-release
 - **Versioning**: Semantic Release (automatic based on conventional commits)
 
 ## Project Structure
@@ -21,8 +21,7 @@ This is a Python CLI tool for monitoring directories and creating timestamped ba
 - `tests/` - Python and PowerShell tests
 - `docs/` - Sphinx documentation
 - `build.ps1` - Development setup script
-- `deploy.ps1` - Deployment script for Jenkins
-- `pyproject.toml` - Poetry configuration and dependencies
+- `pyproject.toml` - PEP 621 project configuration and dependencies
 
 ## Important Context
 
@@ -44,9 +43,9 @@ The tool provides three main commands:
 
 ### Development Workflow
 
-1. **Setup**: Run `.\build.ps1 -install` to install dependencies
-2. **Testing**: Run `.venv\Scripts\pytest` for all tests
-3. **Pre-commit**: Run `.venv\Scripts\pre-commit run --all-files` before committing
+1. **Setup**: Run `uv sync --all-groups` to install dependencies
+2. **Testing**: Run `uv run pytest` for all tests
+3. **Pre-commit**: Run `uv run pre-commit run --all-files` before committing
 4. **Commits**: MUST follow conventional commit format (enforced by commitlint)
 
 ### Commit Standards
@@ -66,11 +65,11 @@ This project uses **strict conventional commits**. Every commit message must fol
 
 ### Release Process
 
-- **Automatic**: Jenkins builds on `develop` branch
+- **Automatic**: GitHub Actions on `develop` branch
 - **Semantic Release**: Analyzes commits and auto-bumps version
 - **Version Files**: Synchronized in `pyproject.toml`, `src/trs_file_backup/__init__.py`, `docs/conf.py`
 - **Changelog**: Auto-generated in `CHANGELOG.md`
-- **Publishing**: Tag builds publish to PyPI repository
+- **Publishing**: Tag builds publish to PyPI
 
 ## Code Guidelines
 
@@ -89,9 +88,9 @@ This project uses **strict conventional commits**. Every commit message must fol
 
 ## Package Distribution
 
-- **Internal**: Published to PyPI (public)
+- **Registry**: Published to PyPI (public)
 - **License**: MIT
-- **Installation**: `pip install trs-file-backup` (from internal repository)
+- **Installation**: `pip install trs-file-backup`
 
 ## PowerShell Integration
 
