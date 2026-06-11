@@ -43,7 +43,7 @@ version_variables = [
     "src/trs_file_backup/__init__.py:__version__",
     "docs/conf.py:release",
 ]
-build_command = "uv build"
+build_command = "pip install uv && uv build"
 
 [tool.semantic_release.branches.main]
 match = "develop"
