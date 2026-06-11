@@ -1,6 +1,38 @@
 # CHANGELOG
 
 
+## v2.0.1 (2026-06-11)
+
+### Bug Fixes
+
+- **ci**: Add PyPI publishing via OIDC trusted publishing
+  ([#17](https://github.com/TheRedSwabian/trs-file-backup/pull/17),
+  [`399de9e`](https://github.com/TheRedSwabian/trs-file-backup/commit/399de9ef36f6955f5ee2b890b3ebf400acf27916))
+
+- Add Codecov coverage badge (develop branch) below Build Status badge - Add PyPI version and Python
+  version badges - Add 'why use this' intro paragraph - Add Requirements section (Python >= 3.10,
+  Windows/Linux/macOS) - Fix Top-Level Monitoring description (subdirectory support planned) - Move
+  commit conventions and release docs to new CONTRIBUTING.md - Replace Credits boilerplate with
+  short Contributing link - Fix test/pre-commit commands to use uv run (cross-platform) - Add
+  pypa/gh-action-pypi-publish step for automated PyPI publishing via OIDC
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
+
+### Documentation
+
+- Add Codecov badge, improve README for open source, and add CONTRIBUTING.md
+  ([#17](https://github.com/TheRedSwabian/trs-file-backup/pull/17),
+  [`ed9de3e`](https://github.com/TheRedSwabian/trs-file-backup/commit/ed9de3ec79c32da4779855bf8ff0185f439794e6))
+
+- Add Codecov coverage badge (develop branch) below Build Status badge - Add 'why use this' intro
+  paragraph - Add PyPI version and Python version badges - Add Requirements section (Python >= 3.10,
+  Windows/Linux/macOS) - Fix Top-Level Monitoring description (subdirectory support planned) - Move
+  commit conventions and release docs to new CONTRIBUTING.md - Replace Credits boilerplate with
+  short Contributing link - Fix test/pre-commit commands to use uv run (cross-platform)
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
+
+
 ## v2.0.0 (2026-06-11)
 
 ### Bug Fixes

@@ -1,6 +1,6 @@
 [project]
 name = "trs-file-backup"
-version = "2.0.0"
+version = "2.0.1"
 description = "Script to backup changed files in a given folder."
 authors = [{ name = "Ruediger Reiner" }]
 license = { text = "MIT" }
@@ -16,6 +16,7 @@ dependencies = [
 [project.scripts]
 bcs = "trs_file_backup.main:app"
 trs-file-backup = "trs_file_backup.main:app"
+
 
 
 [dependency-groups]
@@ -147,6 +148,7 @@ ignore_errors = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/trs_file_backup"]
+
 
 [build-system]
 requires = ["hatchling"]
