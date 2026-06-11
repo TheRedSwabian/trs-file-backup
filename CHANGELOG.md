@@ -1,12 +1,94 @@
 # CHANGELOG
 
 
+## v2.0.0 (2026-06-11)
+
+### Bug Fixes
+
+- Resolve CI test failures and lint issues
+  ([#3](https://github.com/TheRedSwabian/trs-file-backup/pull/3),
+  [`9bedb2e`](https://github.com/TheRedSwabian/trs-file-backup/commit/9bedb2e25c81608daf64659256a18dad06546670))
+
+- Remove obsolete Pester tests (create-portable.ps1 no longer exists) - Strip ANSI escape codes in
+  help tests via click.unstyle() to handle Rich rendering on Linux CI runners - Fix import ordering
+  in test_cli.py (ruff isort) - Add missing newline at end of .gitignore and LICENSE
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
+
+- **ci**: Grant write permissions and id-token for release job
+  ([#11](https://github.com/TheRedSwabian/trs-file-backup/pull/11),
+  [`d366467`](https://github.com/TheRedSwabian/trs-file-backup/commit/d3664677e52c0b5db5e73737f2c2e218a56cf22e))
+
+PSR needs contents:write to push the release commit and tag to develop. id-token:write is required
+  for OIDC-based PyPI publishing.
+
+Also: existing git tags (v0.1.0-v1.0.4) converted from annotated to lightweight tags so PSR v9 can
+  correctly detect them in branch history. GitPython's tag.commit dereference for annotated tags
+  fails silently in Docker environments, causing PSR to fall back to v0.0.0 as baseline.
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
+
+- **release**: Install uv inside PSR Docker container before build
+  ([#11](https://github.com/TheRedSwabian/trs-file-backup/pull/11),
+  [`038f9a0`](https://github.com/TheRedSwabian/trs-file-backup/commit/038f9a067cfbd346514d9bac07ea8ad25e86af1e))
+
+The python-semantic-release GitHub Action runs inside a Docker container that does not have uv
+  installed. The build_command is executed within that container, so uv must be installed first.
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
+
+- **release**: Restore main branch group name for semantic-release tag recognition
+  ([#11](https://github.com/TheRedSwabian/trs-file-backup/pull/11),
+  [`bd1a10b`](https://github.com/TheRedSwabian/trs-file-backup/commit/bd1a10b99780807bb3544bd875cabf440e5520ba))
+
+The branch group was renamed from 'main' to 'develop' in a prior simplification, which has semantic
+  meaning in python-semantic-release. The 'main' group name identifies the primary release branch.
+  Without it, existing tags are not recognized as full releases.
+
+- Rename branch group back to 'main' (matching on 'develop') - Add explicit prerelease = false
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
+
+### Build System
+
+- Migrate package manager from Poetry to uv
+  ([#1](https://github.com/TheRedSwabian/trs-file-backup/pull/1),
+  [`a84c5cb`](https://github.com/TheRedSwabian/trs-file-backup/commit/a84c5cb741bc19c29925bf7403557aa7ff3bed8e))
+
+Replace Poetry with uv and hatchling as build backend. Migrate pyproject.toml to PEP 621 project
+  table with dependency-groups. Remove internal Artifactory source, pypeline-runner, and
+  pypeline-semantic-release. Update semantic-release config for GitHub remote. Remove obsolete
+  files: Jenkinsfile, build.bat, pypeline.yaml, poetry.lock, poetry.toml. Update
+  .pre-commit-config.yaml, .vscode/tasks.json, README.md, AGENTS.md, and docs/conf.py.
+
+BREAKING CHANGE: Poetry is no longer supported. Use uv for dependency management.
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
+
+### Documentation
+
+- Move AGENTS.md to root and remove obsolete skills
+  ([#3](https://github.com/TheRedSwabian/trs-file-backup/pull/3),
+  [`2cd8887`](https://github.com/TheRedSwabian/trs-file-backup/commit/2cd8887393726027b8314ffd70c9729933c45ecf))
+
+- Move .github/AGENTS.md to repository root (required location for Copilot CLI) - Delete
+  .github/skills/ directory (replaced by marketplace extensions) - Delete .github/prompts/ directory
+
+Closes #3
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
+
+### Breaking Changes
+
+- Poetry is no longer supported. Use uv for dependency management.
+
+
 ## v1.0.4 (2026-01-20)
 
 ### Bug Fixes
 
 - Add blank lines after session end for better log readability
-  ([`f6f4fb2`](https://github.com/TheRedSwabian/trs-file-backup/commit/f6f4fb200f1c1ad0870b7d5ca1518df2714f5a35))
+  ([`354db04`](https://github.com/TheRedSwabian/trs-file-backup/commit/354db04904b67ebecaabd523d52bdd2e5db5cb31))
 
 
 ## v1.0.3 (2026-01-20)
@@ -14,7 +96,7 @@
 ### Bug Fixes
 
 - Windows atomic write and test compatibility
-  ([`f7b441c`](https://github.com/TheRedSwabian/trs-file-backup/commit/f7b441cb91a3a89f405b271a1d0686e9849a1625))
+  ([`a30a736`](https://github.com/TheRedSwabian/trs-file-backup/commit/a30a736b040bdffd562a3d1e26c62c3bd1d7ca31))
 
 
 ## v1.0.2 (2026-01-20)
@@ -22,7 +104,7 @@
 ### Bug Fixes
 
 - Improve version handling and remove redundant output
-  ([`ca9348e`](https://github.com/TheRedSwabian/trs-file-backup/commit/ca9348e46ad5925f352c51029dace65ba69388da))
+  ([`b590ff1`](https://github.com/TheRedSwabian/trs-file-backup/commit/b590ff1f4827aab2a040b39fdff78aa7313c1ec0))
 
 - Show --version flag in help output and make it functional - Remove duplicate session summary
   message on watch stop - Clean dist directory before build to prevent stale wheel packages
@@ -33,7 +115,7 @@
 ### Bug Fixes
 
 - Prevent duplicate backups from rapid filesystem events on Windows
-  ([`d2db3f5`](https://github.com/TheRedSwabian/trs-file-backup/commit/d2db3f5c1b983ae3cd6d1405ce784fff7c711df4))
+  ([`219bae0`](https://github.com/TheRedSwabian/trs-file-backup/commit/219bae0e1264bd0a704db1a5d89406a2a852027b))
 
 Implement debounce mechanism to consolidate multiple events per file into single backup.
 
@@ -43,7 +125,7 @@ Implement debounce mechanism to consolidate multiple events per file into single
 ### Features
 
 - Change backupfile name extend help information
-  ([`4d97800`](https://github.com/TheRedSwabian/trs-file-backup/commit/4d97800328a9d5b659043725d8259513381fd6ab))
+  ([`e2e5fb5`](https://github.com/TheRedSwabian/trs-file-backup/commit/e2e5fb516d806e6a574752d51ea9f8336f7666b2))
 
 
 ## v0.1.0 (2026-01-16)
@@ -51,23 +133,23 @@ Implement debounce mechanism to consolidate multiple events per file into single
 ### Bug Fixes
 
 - Add pester test and fix some stuff
-  ([`ca3c60d`](https://github.com/TheRedSwabian/trs-file-backup/commit/ca3c60d75c21c1daa363bbb15a2e547dfc031672))
+  ([`fc508fc`](https://github.com/TheRedSwabian/trs-file-backup/commit/fc508fcd4dfa390683d86a7a9cfc22a238e795a8))
 
 - Add portable creation
-  ([`446887e`](https://github.com/TheRedSwabian/trs-file-backup/commit/446887e2ec4d0a294cbb81881c714eb6c760951a))
+  ([`20e9a46`](https://github.com/TheRedSwabian/trs-file-backup/commit/20e9a46e5c7530b208ef973a13276abcfc3a4401))
 
 - Corrected tests and setup
-  ([`8ab8ca2`](https://github.com/TheRedSwabian/trs-file-backup/commit/8ab8ca23fe11649bf7062e5a37dbb21a067eff5a))
+  ([`4c521ea`](https://github.com/TheRedSwabian/trs-file-backup/commit/4c521eaa8dc542fb79b749bc9cc45e7c974b0e87))
 
 ### Documentation
 
 - Add features
-  ([`ba8946f`](https://github.com/TheRedSwabian/trs-file-backup/commit/ba8946f79a1c65aafd1d3941b9382b017ca1f506))
+  ([`6ca1171`](https://github.com/TheRedSwabian/trs-file-backup/commit/6ca11712040ac4cb8655773f9c56799cfba3276c))
 
 ### Features
 
 - Add correct version in wheel file
-  ([`3ffdf3c`](https://github.com/TheRedSwabian/trs-file-backup/commit/3ffdf3c57c7aa487f74548d1e14e900fd8967662))
+  ([`e56daed`](https://github.com/TheRedSwabian/trs-file-backup/commit/e56daed058195d5ce71be3c78ccc4a1996e9ef01))
 
 - Implementation with claude sonnet 4.5
-  ([`8854d10`](https://github.com/TheRedSwabian/trs-file-backup/commit/8854d1036fca03947196c36767e27245cba98ad6))
+  ([`4f7dd05`](https://github.com/TheRedSwabian/trs-file-backup/commit/4f7dd0584897c436c475acdcaa2050603925bbe2))

@@ -1,6 +1,6 @@
 [project]
 name = "trs-file-backup"
-version = "1.0.4"
+version = "2.0.0"
 description = "Script to backup changed files in a given folder."
 authors = [{ name = "Ruediger Reiner" }]
 license = { text = "MIT" }
@@ -16,6 +16,7 @@ dependencies = [
 [project.scripts]
 bcs = "trs_file_backup.main:app"
 trs-file-backup = "trs_file_backup.main:app"
+
 
 [dependency-groups]
 dev = [
@@ -61,9 +62,11 @@ keep_trailing_newline = true
 [tool.semantic_release.remote]
 type = "github"
 
+
 [tool.pytest.ini_options]
 addopts = "-vv -Wdefault --cov=trs_file_backup --cov-report=term-missing:skip-covered --capture=tee-sys --junitxml=build/tests/test-report.xml"
 pythonpath = ["src"]
+
 
 [tool.coverage.run]
 branch = true
@@ -76,6 +79,7 @@ exclude_lines = [
     "raise NotImplementedError",
     'if __name__ == "__main__":',
 ]
+
 
 [tool.ruff]
 target-version = "py38"
@@ -117,6 +121,7 @@ lint.select = [
 [tool.ruff.lint.isort]
 known-first-party = ["trs-file-backup", "tests"]
 
+
 [tool.mypy]
 check_untyped_defs = true
 disallow_any_generics = true
@@ -139,9 +144,11 @@ allow_untyped_defs = true
 module = "docs.*"
 ignore_errors = true
 
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/trs_file_backup"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/trs_file_backup"]
