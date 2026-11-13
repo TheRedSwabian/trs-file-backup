@@ -1,9 +1,11 @@
 """Tests for CLI commands."""
 
+import re
 from pathlib import Path
 from unittest.mock import Mock
 
 import click
+import pytest
 from click.testing import Result as ClickResult
 from pytest_mock import MockFixture
 from typer.testing import CliRunner
@@ -760,3 +762,14 @@ class TestMainApp:
         assert "source" in _help_output(result)
         assert "destination" in _help_output(result)
         assert "debounce" in _help_output(result)
+
+    @pytest.mark.parametrize("command", ["init", "run", "watch"])
+    def test_exclude_option_shows_pattern_metavar(self, command: str) -> None:
+        """Test that --exclude shows PATTERN in the help, not the Python type (typer >= 0.29 prints list[str])."""
+        from trs_file_backup.main import app
+
+        result = runner.invoke(app, [command, "--help"])
+
+        assert result.exit_code == 0
+        assert re.search(r"--exclude\s+pattern\b", _help_output(result))
+        assert "list[str]" not in _help_output(result)
