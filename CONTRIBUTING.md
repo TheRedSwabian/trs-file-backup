@@ -4,6 +4,10 @@
 
 The project uses [uv](https://docs.astral.sh/uv/) for dependency management and packaging.
 
+Development needs Python 3.13.17 or newer; `.python-version` sets the exact range for uv, while the package itself still supports Python 3.10 and newer.
+The reason is the emSign CA incident:
+Python 3.13.17 bundles pip 26.2.2, and older pip versions trust compromised certificate authorities (CAs) through their bundled CA list.
+
 ```powershell
 uv sync --all-groups
 ```
