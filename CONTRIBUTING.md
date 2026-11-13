@@ -77,6 +77,9 @@ Commit messages must follow the Conventional Commits format. The commit type det
 - `revert:` - Reverting an earlier commit → No version bump, because semantic-release does not know this type
 - `<type>!:` or a `BREAKING CHANGE:` footer, with any type above except `revert` - Breaking change → **Major version bump** (1.0.0 → 2.0.0)
 
+semantic-release reads the type from the subject line only: a body line that starts with `fix:` or `feat:` bumps nothing.
+`pyproject.toml` sets this with `parse_squash_commits = false`, because the repository only rebase-merges and so has no squash commits.
+
 **Examples:**
 
 ```bash
@@ -111,6 +114,9 @@ The version is automatically determined by analyzing commit messages since the l
 3. **Automatic Updates**: Version is updated in `pyproject.toml`, see [Version Files](#version-files)
 4. **CHANGELOG.md**: Automatically generated with all changes grouped by type
 5. **Git Tag**: A new version tag is created automatically
+
+semantic-release adds each new release to `CHANGELOG.md` directly below the line `<!-- version list -->`.
+Keep that line: without it, semantic-release leaves `CHANGELOG.md` unchanged and the release has no changelog entry.
 
 ### Version Files
 

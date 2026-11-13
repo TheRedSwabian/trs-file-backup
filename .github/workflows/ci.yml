@@ -75,13 +75,13 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
 
       - name: Release
-        uses: python-semantic-release/python-semantic-release@v9
+        uses: python-semantic-release/python-semantic-release@v10
         id: release
         with:
           github_token: ${{ steps.app-token.outputs.token }}
 
       - name: Publish GitHub Release
-        uses: python-semantic-release/publish-action@v9
+        uses: python-semantic-release/publish-action@v10
         if: steps.release.outputs.released == 'true'
         with:
           github_token: ${{ steps.app-token.outputs.token }}
