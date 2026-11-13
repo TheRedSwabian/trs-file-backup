@@ -1,6 +1,31 @@
 # CHANGELOG
 
 
+## v3.0.1 (2026-11-13)
+
+### Bug Fixes
+
+- Show PATTERN as the value of --exclude in the help
+  ([`4ba9c56`](https://github.com/TheRedSwabian/trs-file-backup/commit/4ba9c5675dbeabde90a5ed9d2ad240ce15d5315f))
+
+typer 0.29 prints the Python type of a list option, so the help of init, run and watch showed
+  "--exclude <list[str]>". An explicit metavar keeps the help readable on every typer version the
+  package allows (typer>=0.16).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+### Testing
+
+- Patch only the backup logger in logger tests
+  ([`ad4b027`](https://github.com/TheRedSwabian/trs-file-backup/commit/ad4b0270c5d98f490be04b293e5f9df78d4e7ef1))
+
+The tests replaced logging.getLogger for every logger name. pytest 9.2 looks up the root logger
+  between tests for its log capture and then got a Mock, which ended the run with a TypeError. The
+  tests now return the mock for the "trs_file_backup" logger only.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+
 ## v3.0.0 (2026-11-13)
 
 ### Build System
