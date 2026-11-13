@@ -111,7 +111,7 @@ The version is automatically determined by analyzing commit messages since the l
 
 1. **GitHub Actions**: When the `develop` branch is pushed, semantic-release analyzes all commits
 2. **Version Calculation**: Based on commit types, see [Commit Message Format](#commit-message-format)
-3. **Automatic Updates**: Version is updated in `pyproject.toml`, see [Version Files](#version-files)
+3. **Automatic Updates**: Version is updated in `pyproject.toml` and `uv.lock`, see [Version Files](#version-files)
 4. **CHANGELOG.md**: Automatically generated with all changes grouped by type
 5. **Git Tag**: A new version tag is created automatically
 
@@ -129,6 +129,10 @@ version = "1.2.3"
 ```
 
 `uv.lock` and `CHANGELOG.md` contain the number as well, but uv and semantic-release write them; nobody edits a version number by hand.
+semantic-release runs `uv lock` in its build command, before `uv build`, and puts the updated `uv.lock` into the release commit (`assets` in `[tool.semantic_release]`).
+So after each release, `uv.lock` on `develop` carries the released version.
+The build command joins its steps with `&&`: if any step fails, the release stops before it commits, tags or pushes anything.
+Keep it on one line joined by `&&`; with the steps on separate lines, semantic-release runs on after a failed step and commits a stale `uv.lock`.
 
 `trs_file_backup.__version__` (and with it `trs-file-backup --version`) and `release` in `docs/conf.py` read the version from the installed package metadata.
 So the package must be installed in the uv environment, as `uv sync` does it; otherwise the import fails with `importlib.metadata.PackageNotFoundError`.
