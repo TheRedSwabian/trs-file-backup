@@ -2,6 +2,7 @@
 #
 # For the full list of built-in configuration values, see the documentation:
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
+import importlib.metadata
 import os
 import sys
 from pathlib import Path
@@ -20,7 +21,7 @@ for path in ["src", "tests"]:
 project = "trs-file-backup"
 copyright = "2026, R. Reiner"
 author = "R. Reiner"
-release = "3.0.1"
+release = importlib.metadata.version("trs-file-backup")
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration

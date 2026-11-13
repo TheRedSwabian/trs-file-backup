@@ -108,27 +108,26 @@ The version is automatically determined by analyzing commit messages since the l
 
 1. **GitHub Actions**: When the `develop` branch is pushed, semantic-release analyzes all commits
 2. **Version Calculation**: Based on commit types, see [Commit Message Format](#commit-message-format)
-3. **Automatic Updates**: Version is updated in:
-   - `pyproject.toml`
-   - `src/trs_file_backup/__init__.py`
-   - `docs/conf.py`
+3. **Automatic Updates**: Version is updated in `pyproject.toml`, see [Version Files](#version-files)
 4. **CHANGELOG.md**: Automatically generated with all changes grouped by type
 5. **Git Tag**: A new version tag is created automatically
 
 ### Version Files
 
-The version is maintained in multiple files (automatically synchronized by semantic-release):
-
-```python
-# src/trs_file_backup/__init__.py
-__version__ = "1.2.3"
-```
+The version is set in one place only, `pyproject.toml`, and semantic-release updates it there:
 
 ```toml
 # pyproject.toml
 [project]
 version = "1.2.3"
 ```
+
+`uv.lock` and `CHANGELOG.md` contain the number as well, but uv and semantic-release write them; nobody edits a version number by hand.
+
+`trs_file_backup.__version__` (and with it `trs-file-backup --version`) and `release` in `docs/conf.py` read the version from the installed package metadata.
+So the package must be installed in the uv environment, as `uv sync` does it; otherwise the import fails with `importlib.metadata.PackageNotFoundError`.
+After a version change, the editable install in `.venv` reports the old number until uv installs it again.
+`uv run` does that before it starts the command, so run the tool and the docs build with `uv run`, not from `.venv` directly.
 
 ### Release Process
 
@@ -145,5 +144,5 @@ version = "1.2.3"
 To check the current version:
 
 ```bash
-python -c "from trs_file_backup import __version__; print(__version__)"
+uv run trs-file-backup --version
 ```

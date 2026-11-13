@@ -62,7 +62,8 @@ This project uses **strict conventional commits**. Every commit message must fol
 
 - **Automatic**: GitHub Actions on `develop` branch
 - **Semantic Release**: Analyzes commits and auto-bumps version
-- **Version Files**: Synchronized in `pyproject.toml`, `src/trs_file_backup/__init__.py`, `docs/conf.py`
+- **Version Files**: the version is set in `pyproject.toml` only; the package and `docs/conf.py` read it from the installed package metadata.
+  `CONTRIBUTING.md`, section "Version Files", has the details.
 - **Changelog**: Auto-generated in `CHANGELOG.md`
 - **Publishing**: Tag builds publish to PyPI
 
