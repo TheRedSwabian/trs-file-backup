@@ -95,6 +95,7 @@ def init(
     exclude: list[str] = typer.Option(  # noqa: B008
         [],
         "--exclude",
+        metavar="PATTERN",
         help="File/directory patterns to exclude (can be repeated)",
     ),
     debounce: int = typer.Option(
@@ -190,6 +191,7 @@ def run(
     exclude: list[str] = typer.Option(  # noqa: B008
         [],
         "--exclude",
+        metavar="PATTERN",
         help="File/directory patterns to exclude (can be repeated)",
     ),
     debounce: int = typer.Option(
@@ -461,6 +463,7 @@ def watch(
     exclude: list[str] = typer.Option(  # noqa: B008
         [],
         "--exclude",
+        metavar="PATTERN",
         help="File/directory patterns to exclude (can be repeated)",
     ),
     debounce: int = typer.Option(
