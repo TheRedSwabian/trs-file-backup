@@ -38,7 +38,17 @@ See the `.vscode/tasks.json` for more details.
 
 ## Committing changes
 
-This repository uses [commitlint](https://github.com/conventional-changelog/commitlint) for checking if the commit message meets the [conventional commit format](https://www.conventionalcommits.org/en).
+Pre-commit checks every commit message against the [conventional commit format](https://www.conventionalcommits.org/en).
+The check runs in the [commitizen](https://github.com/commitizen-tools/commitizen) hook.
+Install the git hooks once per clone:
+
+```shell
+uv run pre-commit install
+```
+
+`.pre-commit-config.yaml` sets `default_install_hook_types`,
+so this installs the `commit-msg` hook for the message check as well as the `pre-commit` hook for the checks on the staged files.
+CI does not check commit messages: a commit made without the hooks goes through unchecked.
 
 ### Commit Message Format
 

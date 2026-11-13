@@ -456,8 +456,9 @@ class TestBackupEventHandler:
         """Test that event handler ignores directory modification events."""
         from unittest.mock import Mock
 
-        from trs_file_backup.main import BackupEventHandler
         from watchdog.events import FileModifiedEvent
+
+        from trs_file_backup.main import BackupEventHandler
 
         source = tmp_path / "source"
         source.mkdir()
@@ -486,8 +487,9 @@ class TestBackupEventHandler:
         """Test that event handler ignores files matching exclusion patterns."""
         from unittest.mock import Mock
 
-        from trs_file_backup.main import BackupEventHandler
         from watchdog.events import FileModifiedEvent
+
+        from trs_file_backup.main import BackupEventHandler
 
         source = tmp_path / "source"
         source.mkdir()
@@ -518,8 +520,9 @@ class TestBackupEventHandler:
         """Test that event handler tracks file modification time for debouncing."""
         from unittest.mock import Mock
 
-        from trs_file_backup.main import BackupEventHandler
         from watchdog.events import FileModifiedEvent
+
+        from trs_file_backup.main import BackupEventHandler
 
         source = tmp_path / "source"
         source.mkdir()
@@ -571,8 +574,9 @@ class TestBackupEventHandler:
         """Test that event handler handles permission errors gracefully."""
         from unittest.mock import Mock
 
-        from trs_file_backup.main import BackupEventHandler
         from watchdog.events import FileModifiedEvent
+
+        from trs_file_backup.main import BackupEventHandler
 
         source = tmp_path / "source"
         source.mkdir()
@@ -614,8 +618,9 @@ class TestBackupEventHandler:
         """Test that event handler handles OS errors gracefully."""
         from unittest.mock import Mock
 
-        from trs_file_backup.main import BackupEventHandler
         from watchdog.events import FileModifiedEvent
+
+        from trs_file_backup.main import BackupEventHandler
 
         source = tmp_path / "source"
         source.mkdir()
@@ -657,8 +662,9 @@ class TestBackupEventHandler:
         """Test that event handler successfully backs up modified files."""
         from unittest.mock import Mock
 
-        from trs_file_backup.main import BackupEventHandler
         from watchdog.events import FileModifiedEvent
+
+        from trs_file_backup.main import BackupEventHandler
 
         source = tmp_path / "source"
         source.mkdir()

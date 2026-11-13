@@ -45,7 +45,7 @@ The tool provides three main commands:
 1. **Setup**: Run `uv sync --all-groups` to install dependencies
 2. **Testing**: Run `uv run pytest` for all tests
 3. **Pre-commit**: Run `uv run pre-commit run --all-files` before committing
-4. **Commits**: MUST follow conventional commit format (enforced by commitlint)
+4. **Commits**: MUST follow conventional commit format, checked by the commitizen `commit-msg` hook (setup in `CONTRIBUTING.md`, section "Committing changes")
 
 ### Commit Standards
 

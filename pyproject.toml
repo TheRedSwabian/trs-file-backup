@@ -25,7 +25,6 @@ dev = [
     "pytest-cov>=6.0",
     "pytest-mock>=3.14",
     "python-semantic-release>=9.1",
-    "ruff>=0",
     "pre-commit>=4.0",
 ]
 docs = [
