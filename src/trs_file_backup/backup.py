@@ -3,7 +3,6 @@
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
 
 from trs_file_backup.state import StateManager
 
@@ -15,8 +14,8 @@ class BackupManager:
         self,
         source_path: Path,
         destination_path: Path,
-        excluded_patterns: List[str],
-        state: Optional[StateManager],
+        excluded_patterns: list[str],
+        state: StateManager | None,
     ):
         """Initialize backup manager.
 
@@ -50,7 +49,7 @@ class BackupManager:
         return f"{name_without_ext}_{timestamp_str}{extension}"
 
     @staticmethod
-    def matches_exclusion_pattern(filename: str, patterns: List[str]) -> bool:
+    def matches_exclusion_pattern(filename: str, patterns: list[str]) -> bool:
         """Check if filename matches any exclusion pattern.
 
         Hidden files (starting with .) are always excluded.
@@ -74,7 +73,7 @@ class BackupManager:
 
         return False
 
-    def get_files_to_backup(self) -> List[Path]:
+    def get_files_to_backup(self) -> list[Path]:
         """Get list of files that need to be backed up.
 
         Returns:

@@ -2,7 +2,6 @@
 
 import logging
 from pathlib import Path
-from typing import List
 
 
 class BackupLogger:
@@ -51,7 +50,7 @@ class BackupLogger:
         command: str,
         source_path: Path,
         destination_path: Path,
-        excluded_patterns: List[str],
+        excluded_patterns: list[str],
         debounce_seconds: int,
     ) -> None:
         """Log session start with configuration.

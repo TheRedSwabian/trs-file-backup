@@ -2,7 +2,6 @@
 
 import json
 from pathlib import Path
-from typing import Dict, List, Optional
 
 
 class StateManager:
@@ -13,8 +12,8 @@ class StateManager:
         source_path: Path,
         destination_path: Path,
         debounce_seconds: int,
-        excluded_patterns: List[str],
-        files: Dict[str, float],
+        excluded_patterns: list[str],
+        files: dict[str, float],
     ):
         """Initialize state manager.
 
@@ -41,7 +40,7 @@ class StateManager:
         return self.destination_path / ".backup_state.json"
 
     @classmethod
-    def load(cls, state_file_path: str | Path) -> Optional["StateManager"]:
+    def load(cls, state_file_path: str | Path) -> "StateManager | None":
         """Load state from file.
 
         Args:
