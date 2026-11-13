@@ -10,7 +10,7 @@ This is a Python CLI tool for monitoring directories and creating timestamped ba
 - **CLI Framework**: Typer + Rich (for terminal UI)
 - **File Watching**: Watchdog
 - **Build Tool**: uv + hatchling
-- **Testing**: Pytest + Pester (PowerShell tests)
+- **Testing**: Pytest
 - **Linting**: Ruff
 - **CI/CD**: GitHub Actions with semantic-release
 - **Versioning**: Semantic Release (automatic based on conventional commits)
@@ -18,9 +18,8 @@ This is a Python CLI tool for monitoring directories and creating timestamped ba
 ## Project Structure
 
 - `src/trs_file_backup/` - Main source code
-- `tests/` - Python and PowerShell tests
+- `tests/` - Python tests
 - `docs/` - Sphinx documentation
-- `build.ps1` - Development setup script
 - `pyproject.toml` - PEP 621 project configuration and dependencies
 
 ## Important Context
@@ -74,7 +73,7 @@ This project uses **strict conventional commits**. Every commit message must fol
 ## Code Guidelines
 
 - **Ruff Configuration**: Line length 180, specific ignores for docstrings
-- **Type Hints**: Required (mypy strict mode)
+- **Type Hints**: Required; mypy rejects functions without full type hints (see `[tool.mypy]` in `pyproject.toml`), only test functions may have none at all
 - **Test Coverage**: Required with pytest-cov
 - **Python Version**: Minimum 3.10
 
@@ -91,7 +90,3 @@ This project uses **strict conventional commits**. Every commit message must fol
 - **Registry**: Published to PyPI (public)
 - **License**: MIT
 - **Installation**: `pip install trs-file-backup`
-
-## PowerShell Integration
-
-The project includes PowerShell scripts and Pester tests. Pester 5.x is required for development.

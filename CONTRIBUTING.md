@@ -15,30 +15,13 @@ GitHub does this automatically; locally, run once per clone:
 git config blame.ignoreRevsFile .git-blame-ignore-revs
 ```
 
-### Prerequisites
-
-**PowerShell Modules:**
-The project requires [Pester](https://pester.dev/) 5.x for PowerShell tests. Install via Scoop:
-
-```powershell
-scoop install pester
-```
-
-Or from PowerShell Gallery:
-
-```powershell
-Install-Module -Name Pester -MinimumVersion 5.0.0 -Force
-```
-
-The `build.ps1 -install` script will check for Pester and attempt to install it via Scoop if missing.
-
 ### Running Tests
 
 ```shell
 uv run pytest
 ```
 
-This will run both Python tests (`test_*.py`) and PowerShell Pester tests (`*.Tests.ps1`).
+This runs the Python tests (`test_*.py`) in `tests/`.
 
 For those using [VS Code](https://code.visualstudio.com/) there are tasks defined for the most common commands:
 
