@@ -1706,7 +1706,7 @@ wheels = [
 
 [[package]]
 name = "trs-file-backup"
-version = "3.0.0"
+version = "3.0.1"
 source = { editable = "." }
 dependencies = [
     { name = "py-app-dev" },

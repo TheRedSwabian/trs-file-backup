@@ -40,7 +40,9 @@ docs = [
 
 [tool.semantic_release]
 version_toml = ["pyproject.toml:project.version"]
-build_command = "pip install uv && uv build"
+# Keep the steps joined by &&; see CONTRIBUTING.md "Version Files".
+build_command = "pip install uv && uv lock && uv build"
+assets = ["uv.lock"]
 
 [tool.semantic_release.branches.main]
 match = "develop"
