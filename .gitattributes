@@ -1,0 +1,23 @@
+# One line ending for everything, decided once here instead of per machine.
+#
+# Without this file Git stores whatever bytes were committed, so what lands in
+# the repository depends on the editor or script that touched a file last.
+# Before this file, 12 files were stored with CRLF and 20 with LF.
+#
+# `text=auto` normalises text files to LF when they are checked in.
+# `eol=lf` keeps the working copy the same as the stored form, independent of
+# a per-machine `core.autocrlf`. It matches `end_of_line` in .editorconfig.
+* text=auto eol=lf
+
+# Windows batch files need CRLF, as .editorconfig already says.
+*.bat eol=crlf
+*.cmd eol=crlf
+
+# Never touch the bytes of binary files.
+*.ico binary
+*.png binary
+
+# Built-in diff drivers: the @@ line of a hunk names the enclosing function or
+# Markdown heading instead of an arbitrary line above the change.
+*.py diff=python
+*.md diff=markdown
