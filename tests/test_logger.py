@@ -1,9 +1,23 @@
 """Tests for logging functionality."""
 
+import logging
 from pathlib import Path
 from unittest.mock import Mock
 
 from pytest_mock import MockFixture
+
+
+def _patch_backup_logger(mocker: MockFixture, mock_logger: Mock) -> None:
+    """Return mock_logger for the backup logger only.
+
+    Patching logging.getLogger for every name breaks pytest's own log capture,
+    which looks up the root logger between tests (pytest >= 9.2).
+    """
+    real_get_logger = logging.getLogger
+    mocker.patch(
+        "logging.getLogger",
+        side_effect=lambda name=None: mock_logger if name == "trs_file_backup" else real_get_logger(name),
+    )
 
 
 class TestBackupLogger:
@@ -15,7 +29,7 @@ class TestBackupLogger:
 
         _mock_mkdir = mocker.patch("pathlib.Path.mkdir")
         _mock_handler = mocker.patch("logging.FileHandler")
-        _mock_logger = mocker.patch("logging.getLogger")
+        _patch_backup_logger(mocker, Mock(handlers=[]))
 
         _logger = BackupLogger(Path("/dest"))
 
@@ -28,7 +42,7 @@ class TestBackupLogger:
 
         mock_logger = Mock()
         mock_logger.handlers = []  # Set handlers as empty list for iteration
-        mocker.patch("logging.getLogger", return_value=mock_logger)
+        _patch_backup_logger(mocker, mock_logger)
         mocker.patch("pathlib.Path.mkdir")
         mocker.patch("logging.FileHandler")
 
@@ -56,7 +70,7 @@ class TestBackupLogger:
 
         mock_logger = Mock()
         mock_logger.handlers = []
-        mocker.patch("logging.getLogger", return_value=mock_logger)
+        _patch_backup_logger(mocker, mock_logger)
         mocker.patch("pathlib.Path.mkdir")
         mocker.patch("logging.FileHandler")
 
@@ -72,7 +86,7 @@ class TestBackupLogger:
 
         mock_logger = Mock()
         mock_logger.handlers = []
-        mocker.patch("logging.getLogger", return_value=mock_logger)
+        _patch_backup_logger(mocker, mock_logger)
         mocker.patch("pathlib.Path.mkdir")
         mocker.patch("logging.FileHandler")
 
@@ -90,7 +104,7 @@ class TestBackupLogger:
 
         mock_logger = Mock()
         mock_logger.handlers = []
-        mocker.patch("logging.getLogger", return_value=mock_logger)
+        _patch_backup_logger(mocker, mock_logger)
         mocker.patch("pathlib.Path.mkdir")
         mocker.patch("logging.FileHandler")
 
@@ -108,7 +122,7 @@ class TestBackupLogger:
 
         mock_logger = Mock()
         mock_logger.handlers = []
-        mocker.patch("logging.getLogger", return_value=mock_logger)
+        _patch_backup_logger(mocker, mock_logger)
         mocker.patch("pathlib.Path.mkdir")
         mocker.patch("logging.FileHandler")
 
@@ -126,7 +140,7 @@ class TestBackupLogger:
 
         mock_logger = Mock()
         mock_logger.handlers = []
-        mocker.patch("logging.getLogger", return_value=mock_logger)
+        _patch_backup_logger(mocker, mock_logger)
         mocker.patch("pathlib.Path.mkdir")
         mocker.patch("logging.FileHandler")
 
@@ -143,7 +157,7 @@ class TestBackupLogger:
 
         mock_logger = Mock()
         mock_logger.handlers = []
-        mocker.patch("logging.getLogger", return_value=mock_logger)
+        _patch_backup_logger(mocker, mock_logger)
         mocker.patch("pathlib.Path.mkdir")
         mocker.patch("logging.FileHandler")
 
@@ -161,7 +175,7 @@ class TestBackupLogger:
 
         mock_logger = Mock()
         mock_logger.handlers = []
-        mocker.patch("logging.getLogger", return_value=mock_logger)
+        _patch_backup_logger(mocker, mock_logger)
         mocker.patch("pathlib.Path.mkdir")
         mocker.patch("logging.FileHandler")
 
@@ -178,7 +192,7 @@ class TestBackupLogger:
 
         mock_logger = Mock()
         mock_logger.handlers = []
-        mocker.patch("logging.getLogger", return_value=mock_logger)
+        _patch_backup_logger(mocker, mock_logger)
         mocker.patch("pathlib.Path.mkdir")
         mocker.patch("logging.FileHandler")
 
@@ -195,7 +209,7 @@ class TestBackupLogger:
 
         mock_handler = mocker.patch("logging.FileHandler")
         mocker.patch("pathlib.Path.mkdir")
-        mocker.patch("logging.getLogger")
+        _patch_backup_logger(mocker, Mock(handlers=[]))
 
         _logger = BackupLogger(Path("/dest"))
 
@@ -209,7 +223,7 @@ class TestBackupLogger:
 
         mock_handler = mocker.patch("logging.FileHandler")
         mocker.patch("pathlib.Path.mkdir")
-        mocker.patch("logging.getLogger")
+        _patch_backup_logger(mocker, Mock(handlers=[]))
 
         _logger = BackupLogger(Path("/dest"))
 
@@ -225,7 +239,7 @@ class TestBackupLogger:
 
         mock_logger = Mock()
         mock_logger.handlers = []
-        mocker.patch("logging.getLogger", return_value=mock_logger)
+        _patch_backup_logger(mocker, mock_logger)
         mocker.patch("pathlib.Path.mkdir")
         mocker.patch("logging.FileHandler")
 
@@ -242,7 +256,7 @@ class TestBackupLogger:
 
         mock_logger = Mock()
         mock_logger.handlers = []
-        mocker.patch("logging.getLogger", return_value=mock_logger)
+        _patch_backup_logger(mocker, mock_logger)
         mocker.patch("pathlib.Path.mkdir")
         mocker.patch("logging.FileHandler")
 
@@ -260,7 +274,7 @@ class TestBackupLogger:
 
         mock_logger = Mock()
         mock_logger.handlers = []
-        mocker.patch("logging.getLogger", return_value=mock_logger)
+        _patch_backup_logger(mocker, mock_logger)
         mocker.patch("pathlib.Path.mkdir")
         mocker.patch("logging.FileHandler")
 
