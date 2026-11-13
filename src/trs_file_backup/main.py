@@ -3,7 +3,7 @@
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, List
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -92,7 +92,7 @@ def init(
         dir_okay=True,
         resolve_path=True,
     ),
-    exclude: List[str] = typer.Option(  # noqa: B008
+    exclude: list[str] = typer.Option(  # noqa: B008
         [],
         "--exclude",
         help="File/directory patterns to exclude (can be repeated)",
@@ -187,7 +187,7 @@ def run(
         dir_okay=True,
         resolve_path=True,
     ),
-    exclude: List[str] = typer.Option(  # noqa: B008
+    exclude: list[str] = typer.Option(  # noqa: B008
         [],
         "--exclude",
         help="File/directory patterns to exclude (can be repeated)",
@@ -458,7 +458,7 @@ def watch(
         dir_okay=True,
         resolve_path=True,
     ),
-    exclude: List[str] = typer.Option(  # noqa: B008
+    exclude: list[str] = typer.Option(  # noqa: B008
         [],
         "--exclude",
         help="File/directory patterns to exclude (can be repeated)",
