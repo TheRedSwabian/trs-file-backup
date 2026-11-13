@@ -8,6 +8,13 @@ The project uses [uv](https://docs.astral.sh/uv/) for dependency management and 
 uv sync --all-groups
 ```
 
+Let `git blame` skip commits that only change formatting, such as line endings.
+GitHub does this automatically; locally, run once per clone:
+
+```shell
+git config blame.ignoreRevsFile .git-blame-ignore-revs
+```
+
 ### Prerequisites
 
 **PowerShell Modules:**
