@@ -5,7 +5,7 @@ description = "Script to backup changed files in a given folder."
 authors = [{ name = "Ruediger Reiner" }]
 license = { text = "MIT" }
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.13.17"
 dependencies = [
     "py-app-dev>=2.6",
     "typer>=0.16",

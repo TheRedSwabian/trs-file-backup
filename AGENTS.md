@@ -6,7 +6,7 @@ This is a Python CLI tool for monitoring directories and creating timestamped ba
 
 ## Key Technologies
 
-- **Language**: Python 3.10+
+- **Language**: Python
 - **CLI Framework**: Typer + Rich (for terminal UI)
 - **File Watching**: Watchdog
 - **Build Tool**: uv + hatchling
@@ -55,12 +55,8 @@ This project uses **strict conventional commits**. Every commit message must fol
 <type>(<scope>): <subject>
 ```
 
-**Version Impact**:
-
-- `feat:` → Minor version bump (1.0.0 → 1.1.0)
-- `fix:` → Patch version bump (1.0.0 → 1.0.1)
-- `feat!:` or `fix!:` → Major version bump (breaking change)
-- `docs:`, `style:`, `refactor:`, `test:`, `chore:` → No version bump
+**Version Impact**: the commit type decides the version bump.
+`CONTRIBUTING.md`, section "Commit Message Format", lists the commit types and their bump.
 
 ### Release Process
 
@@ -75,7 +71,7 @@ This project uses **strict conventional commits**. Every commit message must fol
 - **Ruff Configuration**: Line length 180, specific ignores for docstrings
 - **Type Hints**: Required; mypy rejects functions without full type hints (see `[tool.mypy]` in `pyproject.toml`), only test functions may have none at all
 - **Test Coverage**: Required with pytest-cov
-- **Python Version**: Minimum 3.10
+- **Python Version**: Minimum set by `requires-python` in `pyproject.toml`
 
 ## When Making Changes
 
