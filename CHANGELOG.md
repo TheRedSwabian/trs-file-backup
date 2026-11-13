@@ -1,6 +1,59 @@
 # CHANGELOG
 
 
+## v3.0.0 (2026-11-13)
+
+### Build System
+
+- Require python 3.13.17 or newer
+  ([`b24dfc7`](https://github.com/TheRedSwabian/trs-file-backup/commit/b24dfc754938aef8d74d59dd5d68dac27eed9fe3))
+
+Raise requires-python from >=3.10 to >=3.13.17 and update uv.lock. The lock drops exceptiongroup,
+  tomli and the older pins that only Python 3.10 used; no version changes on 3.13. Name the new
+  minimum in README, CONTRIBUTING and the feature specification; AGENTS points to requires-python
+  instead. Add the commit types build, ci, perf and revert to CONTRIBUTING, with their effect on the
+  version. AGENTS now points to that list instead of repeating it.
+
+BREAKING CHANGE: trs-file-backup now needs Python 3.13.17 or newer. The reason is the emSign CA
+  incident: Python 3.13.17 bundles pip 26.2.2, and older pip versions trust compromised certificate
+  authorities through their bundled CA list. On Python 3.10 up to 3.13.16, pip keeps installing
+  2.0.1, which stays available there.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+### Documentation
+
+- Remove Pester and build.ps1 references from contributor docs
+  ([`0330b5f`](https://github.com/TheRedSwabian/trs-file-backup/commit/0330b5ffbe9585de50d706437bdd0c7f80fff66b))
+
+The Pester tests were removed earlier and the repository has no build.ps1, so the setup steps sent
+  contributors and agents looking for files that do not exist. Also describe the real mypy settings
+  instead of claiming strict mode.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+### Refactoring
+
+- Let ruff take its target version from requires-python
+  ([`8014ce4`](https://github.com/TheRedSwabian/trs-file-backup/commit/8014ce4211f86b71c67cd91ec97549e7894dd139))
+
+ruff checked the code against Python 3.8 while the package requires 3.13.17. Without target-version
+  ruff reads requires-python, so the supported version is set in one place. known-first-party named
+  the distribution instead of the module and had no effect.
+
+Rewrite typing.List, Dict and Optional to built-in generics and X | None (pyupgrade UP006, UP035,
+  UP045). The CLI built by typer is unchanged.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+### Breaking Changes
+
+- Trs-file-backup now needs Python 3.13.17 or newer. The reason is the emSign CA incident: Python
+  3.13.17 bundles pip 26.2.2, and older pip versions trust compromised certificate authorities
+  through their bundled CA list. On Python 3.10 up to 3.13.16, pip keeps installing 2.0.1, which
+  stays available there.
+
+
 ## v2.0.1 (2026-06-11)
 
 ### Bug Fixes
