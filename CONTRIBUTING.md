@@ -4,7 +4,7 @@
 
 The project uses [uv](https://docs.astral.sh/uv/) for dependency management and packaging.
 
-Development needs Python 3.13.17 or newer; `.python-version` sets the exact range for uv, while the package itself still supports Python 3.10 and newer.
+Both the package and its development need Python 3.13.17 or newer; for development, `.python-version` also sets an upper bound so that uv picks a 3.13 release.
 The reason is the emSign CA incident:
 Python 3.13.17 bundles pip 26.2.2, and older pip versions trust compromised certificate authorities (CAs) through their bundled CA list.
 
@@ -66,12 +66,16 @@ Commit messages must follow the Conventional Commits format. The commit type det
 
 - `feat:` - New feature → **Minor version bump** (1.0.0 → 1.1.0)
 - `fix:` - Bug fix → **Patch version bump** (1.0.0 → 1.0.1)
+- `perf:` - Performance improvement → **Patch version bump** (1.0.0 → 1.0.1)
 - `docs:` - Documentation only → No version bump
 - `style:` - Code style/formatting → No version bump
 - `refactor:` - Code refactoring → No version bump
 - `test:` - Adding tests → No version bump
+- `build:` - Build system, packaging or dependencies → No version bump
+- `ci:` - CI configuration → No version bump
 - `chore:` - Maintenance tasks → No version bump
-- `feat!:` or `fix!:` - Breaking change → **Major version bump** (1.0.0 → 2.0.0)
+- `revert:` - Reverting an earlier commit → No version bump, because semantic-release does not know this type
+- `<type>!:` or a `BREAKING CHANGE:` footer, with any type above except `revert` - Breaking change → **Major version bump** (1.0.0 → 2.0.0)
 
 **Examples:**
 
@@ -103,7 +107,7 @@ This repository uses [semantic release](https://python-semantic-release.readthed
 The version is automatically determined by analyzing commit messages since the last release:
 
 1. **GitHub Actions**: When the `develop` branch is pushed, semantic-release analyzes all commits
-2. **Version Calculation**: Based on commit types (feat, fix, BREAKING CHANGE)
+2. **Version Calculation**: Based on commit types, see [Commit Message Format](#commit-message-format)
 3. **Automatic Updates**: Version is updated in:
    - `pyproject.toml`
    - `src/trs_file_backup/__init__.py`

@@ -4,7 +4,7 @@
 
 The trs-file-backup monitors a source directory and creates timestamped backup copies of modified files to a destination directory.
 
-**Implementation Language:** Python 3.10+
+**Implementation Language:** Python 3.13.17+
 
 The tool shall be implemented as a Python command-line application with comprehensive help functionality.
 
@@ -548,7 +548,7 @@ Each execution of the script creates a session with:
 
 ### General
 
-- Implementation language: Python 3.10 or higher
+- Implementation language: Python 3.13.17 or higher
 - Use `typer` library for CLI framework with built-in help generation
 - Use Python's `pathlib` for cross-platform path handling
 - Use `shutil.copy2()` to preserve file metadata during copy
@@ -603,7 +603,7 @@ Each execution of the script creates a session with:
 
 ### Dependencies
 
-- Python: 3.10+
+- Python: 3.13.17+
 - `typer`: CLI framework with automatic help generation
 - `rich`: Enhanced terminal output (used by typer for help formatting)
 - `watchdog`: File system event monitoring (required for watch command)

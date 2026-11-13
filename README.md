@@ -13,7 +13,7 @@
 
 ## Requirements
 
-- **Python** 3.10 or higher
+- **Python** 3.13.17 or higher
 - **OS**: Windows, Linux, macOS
 
 ## Features
