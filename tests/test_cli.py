@@ -1,8 +1,10 @@
 """Tests for CLI commands."""
 
+import importlib
+import importlib.metadata
 import re
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import click
 import pytest
@@ -722,13 +724,28 @@ class TestMainApp:
         assert "init" in _help_output(result)
         assert "watch" in _help_output(result)
 
-    def test_main_version_flag(self, mocker: MockFixture) -> None:
-        """Test that version flag works."""
-        from trs_file_backup.main import app
+    def test_main_version_flag(self) -> None:
+        """Test that --version prints the version from the installed package metadata."""
+        import trs_file_backup
+        import trs_file_backup.main
 
-        result = runner.invoke(app, ["--version"])
+        real_version = importlib.metadata.version
+
+        def fake_version(distribution_name: str) -> str:
+            return "9.8.7" if distribution_name == "trs-file-backup" else real_version(distribution_name)
+
+        # The version is looked up once at import time, so both modules are reloaded under the patch and again afterwards.
+        try:
+            with patch("importlib.metadata.version", side_effect=fake_version):
+                importlib.reload(trs_file_backup)
+                importlib.reload(trs_file_backup.main)
+                result = runner.invoke(trs_file_backup.main.app, ["--version"])
+        finally:
+            importlib.reload(trs_file_backup)
+            importlib.reload(trs_file_backup.main)
 
         assert result.exit_code == 0
+        assert result.output == "trs-file-backup version 9.8.7\n"
 
     def test_init_help(self, mocker: MockFixture) -> None:
         """Test init command help."""
