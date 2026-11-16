@@ -4,7 +4,7 @@
 
 The trs-file-backup monitors a source directory and creates timestamped backup copies of modified files to a destination directory.
 
-**Implementation Language:** Python 3.13.17+
+**Implementation Language:** Python; the minimum version is set by `requires-python` in `pyproject.toml`
 
 The tool shall be implemented as a Python command-line application with comprehensive help functionality.
 
@@ -719,18 +719,17 @@ A session has:
 
 ### General
 
-- Implementation language: Python 3.13.17 or higher
+- Implementation language: Python; the minimum version is set by `requires-python` in `pyproject.toml`
 - Use `typer` library for CLI framework with built-in help generation
 - Use Python's `pathlib` for cross-platform path handling
 - Use `shutil.copy2()` to preserve file metadata during copy
-- Use `datetime.now()` for timestamp generation in format `YYYY_MM_DD__HH_MM_SS`
-- TimesPath.iterdir()` to iterate only files in the top-level directory (not recursive)
+- Use `datetime.now()` for timestamp generation
+- Use `Path.iterdir()` to iterate only files in the top-level directory (not recursive)
 - Skip all entries where `Path.is_dir()` returns True
-- Use `shutil.copy2()` to preserve file metadata during copy
-- All backup files are stored flat in the destination directory (no subdirectories)- State file (`.backup_state.json`) is stored in the destination directory
-- State file contains both source_path and destination_path for reference- Use `datetime.now()` for timestamp generation in format `YYYY_MM_DD__HH_MM_SS`
+- All backup files are stored flat in the destination directory (no subdirectories)
+- State file (`.backup_state.json`): AC-3.2 and AC-3.11 define its directory, AC-3.3 its two paths, and AC-3.11 and AC-3.12 how each path is used when it is read
 - Timestamp format: `strftime("%Y_%m_%d__%H_%M_%S")` with 24-hour format
-- Backup filename pattern: `{original_filename}_YYYY_MM_DD__HH_MM_SS.{extension}`
+- Backup filename pattern: see AC-2.2
 - Implement atomic state file updates (write to temp file, then rename)
 - Use `pathlib.Path.match()` for pattern matching with wildcard support
 - Exclusion patterns are evaluated against filenames only (not paths)
@@ -770,11 +769,10 @@ A session has:
   - Session end marker and summary
 - Log excluded files with pattern match information
 - Settings are logged once per session at start, not repeated during operations
-- Use `datetime.now()` for timestamp generation in format `YYYY_MM_DD__HH_MM_SS`
 
 ### Dependencies
 
-- Python: 3.13.17+
+- Python: the minimum version is set by `requires-python` in `pyproject.toml`
 - `typer`: CLI framework with automatic help generation
 - `rich`: Enhanced terminal output (used by typer for help formatting) and the prompts of the `config` menu
 - `watchdog`: File system event monitoring (required for watch command)
