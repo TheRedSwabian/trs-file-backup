@@ -6,6 +6,12 @@ The trs-file-backup provides automated backup functionality for monitoring and b
 
 See [File Backup Specification](file_backup.md) for detailed requirements and specifications.
 
+```{toctree}
+:hidden:
+
+file_backup.md
+```
+
 ### Key Features
 
 - **Top-Level File Monitoring**: Monitors only files in the main directory (subdirectories ignored)
