@@ -66,6 +66,14 @@ trs-file-backup --help
 trs-file-backup run --help
 ```
 
+### Saved Settings
+
+`init` saves the exclusion patterns and the debounce delay in `.backup_state.json`.
+A later `run` or `watch` without `--exclude` or `--debounce` uses the saved value.
+Giving the option replaces the saved value; it is not added to the saved patterns.
+The new value is saved, also when `run` finds no modified files; only `run --dry-run` never writes the state file.
+Without a state file, the defaults apply: no patterns of your own and a debounce delay of 2 seconds.
+
 ### Example Output
 
 Original file: `report.txt`
