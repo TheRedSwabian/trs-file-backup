@@ -26,11 +26,12 @@ This is a Python CLI tool for monitoring directories and creating timestamped ba
 
 ### CLI Commands
 
-The tool provides three main commands:
+The tool provides these commands:
 
 - `trs-file-backup init` - Initialize backup tracking
 - `trs-file-backup run` - One-time backup
 - `trs-file-backup watch` - Continuous monitoring mode
+- `trs-file-backup config` - Show and edit the saved settings (`config show` prints them without prompting)
 
 ### Backup Behavior
 

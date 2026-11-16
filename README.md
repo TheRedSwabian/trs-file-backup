@@ -27,6 +27,7 @@
 - 🎯 **Smart Exclusions**: Automatically skip hidden files
 - 🚫 **Custom Patterns**: Exclude specific files with wildcard patterns
 - 📊 **State Tracking**: Maintain backup history in `.backup_state.json` (stored in backup directory)
+- 🛠️ **Settings Menu**: Show and edit the saved exclusion patterns and debounce delay with `config`
 - 📝 **Activity Logging**: All operations logged to `backup.log` with timestamps
 - 🔍 **Dry-Run Mode**: Preview changes before backing up
 
@@ -73,6 +74,22 @@ A later `run` or `watch` without `--exclude` or `--debounce` uses the saved valu
 Giving the option replaces the saved value; it is not added to the saved patterns.
 The new value is saved, also when `run` finds no modified files; only `run --dry-run` never writes the state file.
 Without a state file, the defaults apply: no patterns of your own and a debounce delay of 2 seconds.
+The state file belongs to the folder given with `--destination`: a copied or moved backup folder works on its own state file and never writes into the old folder.
+A backup folder belongs to one source: `run` and `watch` with another `--source` stop with an error; use another backup folder, or run `init` again.
+
+To see or change the saved settings without running `init` again, use `config`:
+
+```bash
+# Print the saved settings
+trs-file-backup config show --destination ./backup
+
+# Open a menu to change the debounce delay or add, remove and clear exclusion patterns
+trs-file-backup config --destination ./backup
+```
+
+Nothing is written until you choose "save" in the menu.
+The changes take effect at the next start of `run` or `watch`.
+Stop a running `watch` and wait for a running `run` to finish first: both write their own settings back to the state file and would overwrite your changes.
 
 ### Example Output
 
@@ -84,6 +101,7 @@ Backup file: `report_2026_01_13__14_30_22.txt`
 - **`init`**: Initialize backup tracking for a directory
 - **`run`**: Execute a one-time backup of modified files
 - **`watch`**: Continuously monitor and backup files in real-time
+- **`config`**: Show and edit the saved settings (`config show` only prints them)
 
 Use `trs-file-backup COMMAND --help` for detailed information on each command.
 

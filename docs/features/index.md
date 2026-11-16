@@ -19,4 +19,5 @@ See [File Backup Specification](file_backup.md) for detailed requirements and sp
 - **Activity Logging**: All operations logged to `backup.log` with timestamps and severity levels
 - **Dry-Run Mode**: Preview what would be backed up without copying files
 - **Real-Time Watch Mode**: Continuously monitor directories and backup files automatically
+- **Settings Menu**: Show and edit the saved exclusion patterns and debounce delay with the `config` command
 - **Comprehensive Help System**: Built-in help for all commands without external documentation

@@ -52,15 +52,24 @@ The tool shall be implemented as a Python command-line application with comprehe
 - AC-3.3: The state file shall contain both source and destination directory paths
 - AC-3.4: On first run (no state file exists), all files shall be backed up
 - AC-3.5: The state file shall be updated after each successful backup operation
-- AC-3.6: The state file shall store the exclusion patterns and the debounce delay (the saved settings); `init` saves the values given to it
+- AC-3.6: The state file shall store the exclusion patterns and the debounce delay (the saved settings);
+  `init` saves the values given to it, and `config` changes them (FR-7)
 - AC-3.7: `run` and `watch` shall use the saved exclusion patterns when `--exclude` is not given, and the saved debounce delay when `--debounce` is not given
 - AC-3.8: A given `--exclude` shall replace the saved user patterns (not be added to them), and a given `--debounce` shall replace the saved delay.
   The new values shall be saved in the state file, also when `run` finds no modified files.
   Only `run --dry-run` never writes the state file.
   `--debounce 0` is a given value.
 - AC-3.9: Without a state file, `run` and `watch` shall use the defaults: no user patterns and a debounce delay of 2 seconds
-- AC-3.10: The pattern `.backup_state.json` shall appear exactly once in the exclusion patterns that `init`, `run` and `watch` use and save;
+- AC-3.10: The pattern `.backup_state.json` shall appear exactly once in the exclusion patterns that `init`, `run`, `watch` and `config` use and save;
   a pattern given twice shall be saved once
+- AC-3.11: For every command, the directory given with `--destination` shall be the destination: the state file shall be read from and written to it,
+  and backups shall go into it, also when the `destination_path` stored in the state file names another directory (a copied or moved backup folder).
+  Every write of the state file shall store the given directory as `destination_path`.
+- AC-3.12: When a state file exists and the `--source` given to `run` or `watch` is another directory than the saved `source_path`,
+  the command shall stop before it backs up, writes the state file or the log, or starts watching: it shall print an error that names the saved source
+  and says to use another backup folder or to run `init` again, and exit with code 1.
+  Both paths are compared after they are made absolute and normalised; on Windows, a difference in letter case alone is not a different directory.
+  Without a state file there is no check, and `init` always starts a new state.
 
 ### FR-4: Exclusion Patterns
 
@@ -130,6 +139,46 @@ The tool shall be implemented as a Python command-line application with comprehe
 - **WARNING**: Non-critical issues (file skipped due to exclusion, file locked, file not initially backed up)
 - **ERROR**: Critical errors (permission denied, source directory not found, copy failed)
 
+### FR-7: Show and Edit the Saved Settings
+
+**ID:** FR-7
+**Title:** Show and edit the saved settings on the console
+**Description:** The system shall print the settings saved in the state file and let the user change single settings in a menu, without running `init` again.
+
+**Acceptance Criteria:**
+
+- AC-7.1: `config show --destination <path>` shall print the saved settings without asking anything:
+  the source directory, the debounce delay, and the user exclusion patterns numbered from 1.
+  The pattern `.backup_state.json` is not listed, because it is always excluded (AC-3.10).
+  An empty list of user patterns shall be printed as `(none)`.
+- AC-7.2: `config --destination <path>` shall open a menu when standard input is a terminal; otherwise it shall behave like `config show`
+- AC-7.3: The menu shall show the settings as in AC-7.1 and offer these actions:
+  change the debounce delay, add a pattern, remove a pattern by its number, clear all user patterns, save and quit, quit without saving
+- AC-7.4: The source directory shall be read-only, and the list of tracked files shall be neither shown nor changed
+- AC-7.5: A new debounce delay shall be a whole number of 0 or more seconds; a negative number shall be rejected and asked for again
+- AC-7.6: A new pattern shall be stored without leading and trailing spaces.
+  Adding a pattern that is already listed, or `.backup_state.json`, shall leave the list unchanged and say so; an empty pattern shall be rejected.
+- AC-7.7: Removing by a number that is not in the list shall print a message and leave the list unchanged; the menu continues, `config` does not exit
+- AC-7.8: Clearing shall remove all user patterns; `.backup_state.json` stays excluded (AC-3.10)
+- AC-7.9: After each change, the menu shall show the settings again and mark what differs from the state file: a changed delay, a new pattern, a removed pattern
+- AC-7.10: Nothing shall be written before the user chooses "save".
+  Save shall write the patterns and the delay through the atomic state file update (see Implementation Notes)
+  and keep the source directory and the tracked files as the state file holds them at that moment.
+- AC-7.11: Quitting with unsaved changes shall ask for confirmation.
+  When the input ends before "save", nothing is saved; the exit code is 1 if changes were lost, else 0.
+- AC-7.12: Without a state file in the destination directory, `config` and `config show` shall print an error that says to run `init` first,
+  exit with code 1, and create nothing.
+  A state file that cannot be read shall also give an error and exit code 1.
+- AC-7.13: When `config` saves, it shall write a session to `backup.log` as FR-6 describes:
+  the session header with command `config` and the saved settings, one line that names the changes, and the session end.
+  `config show`, and quitting without saving, shall not write to `backup.log`.
+  When the state file was saved but `backup.log` cannot be written, the settings shall stay saved;
+  `config` shall print an error that says the settings were saved and names `backup.log`, and exit with code 1.
+- AC-7.14: Saved changes take effect at the next start of `run` or `watch` (AC-3.7).
+  `run` and `watch` read the state file at their start and keep the settings in memory; `watch` writes them back after each backup and `run` at its end,
+  which overwrites a change that `config` saved meanwhile. Stop a running `watch` and wait for a running `run` to finish before using `config`.
+- AC-7.15: The text that `config` prints, apart from paths and patterns, shall use ASCII characters only
+
 ## Non-Functional Requirements
 
 ### NFR-1: Performance
@@ -166,7 +215,8 @@ The tool shall be implemented as a Python command-line application with comprehe
   - Required and optional parameters with explanations
   - Usage examples
   - Common use cases
-- Help text shall be accessible via `--help`, `-h`, or running command without arguments
+- Help text shall be accessible via `--help` or `-h`; `trs-file-backup` without a command shall show the main help.
+  A command without its required options shall print a usage error that names the missing option and points to the help option `-h` (exit code 2).
 - Error messages shall suggest relevant help commands when parameters are missing or invalid
 
 ## CLI Interface Specification
@@ -202,6 +252,7 @@ Commands:
   run    Execute a one-time backup of modified files
   init   Initialize backup tracking for a directory
   watch  Continuously monitor and backup files in real-time
+  config Show and edit the saved settings (debounce delay and exclusion patterns)
 
 Use 'trs-file-backup COMMAND --help' for more information on a specific command.
 
@@ -472,6 +523,99 @@ Ctrl+C detected. Stopping file system monitor...
 [2026-01-13 14:40:00] [INFO] ========== Session Ended ==========
 ```
 
+### Command: `config`
+
+**Purpose:** Show and edit the settings saved in the state file (FR-7)
+
+**Syntax:**
+
+```bash
+trs-file-backup config --destination <path>
+trs-file-backup config show --destination <path>
+# Help
+trs-file-backup config --help
+trs-file-backup config show --help
+```
+
+**Parameters:**
+
+- `--destination`: Path to the destination backup directory that holds the state file (required).
+  It may stand before or after `show`.
+
+**Help Output:**
+
+```bash
+Usage: trs-file-backup config [OPTIONS] COMMAND [ARGS]...
+
+  Show and edit the saved settings (debounce delay and exclusion patterns).
+
+  Without a subcommand, this opens a menu to change the debounce delay and to add,
+  remove or clear exclusion patterns. Nothing is written before you choose save.
+  When input does not come from a terminal, it prints the settings like 'config show'.
+  The source directory cannot be changed here.
+
+Options:
+  --destination PATH  Destination backup directory that holds the state file
+  --help, -h          Show this message and exit
+
+Commands:
+  show  Print the saved settings without asking anything.
+
+Examples:
+  # Open the menu
+  trs-file-backup config --destination C:\Backup\MyApp
+
+  # Print the saved settings only
+  trs-file-backup config show --destination ./backup
+
+Note:
+  Stop a running 'watch' and wait for a running 'run' to finish first: both write their own
+  settings back to the state file and would overwrite your changes.
+  Saved changes take effect at the next start of 'run' or 'watch'.
+```
+
+**Command Output (`config show`):**
+
+```text
+Saved settings
+  Source:    C:\Projects\MyApp   (read-only)
+  Debounce:  5 s
+  Excluded:  1) *.log
+             2) temp_*
+```
+
+**Menu (`config`), after the delay was set to 0 and pattern 2 was removed:**
+
+```text
+Saved settings
+  Source:    C:\Projects\MyApp   (read-only)
+  Debounce:  0 s   (changed)
+  Excluded:  1) *.log
+  Removed:   temp_*
+Unsaved changes: choose s to save them.
+
+  [1] change debounce   [2] add pattern   [3] remove pattern
+  [4] clear patterns    [s] save and quit [q] quit without saving
+Choose [1/2/3/4/s/q]: s
+Saved to C:\Backup\MyApp\.backup_state.json. The changes take effect at the next start of 'run' or 'watch'.
+```
+
+Before the first list, the menu prints the note to stop a running `watch` and wait for a running `run` to finish first.
+A pattern added in the menu is marked `(new)`.
+
+**Log File Example (backup.log), after this save:**
+
+```text
+[2026-01-13 15:10:04] [INFO] ========== Session Started ==========
+[2026-01-13 15:10:04] [INFO] Command: config
+[2026-01-13 15:10:04] [INFO] Source: C:\Projects\MyApp
+[2026-01-13 15:10:04] [INFO] Destination: C:\Backup\MyApp
+[2026-01-13 15:10:04] [INFO] Exclusion patterns: .backup_state.json, *.log
+[2026-01-13 15:10:04] [INFO] Debounce delay: 0 seconds
+[2026-01-13 15:10:04] [INFO] Settings changed: debounce delay 5 -> 0 seconds; removed pattern temp_*
+[2026-01-13 15:10:04] [INFO] ========== Session Ended ==========
+```
+
 ## Data Structures
 
 ### State File Format (`.backup_state.json`)
@@ -498,12 +642,13 @@ Ctrl+C detected. Stopping file system monitor...
 **Notes:**
 
 - The state file is stored in the destination (backup) directory
-- `source_path`: The source directory being monitored
-- `destination_path`: The destination backup directory
+- On Windows, an antivirus or the indexer may hold the new file for a moment, so the final rename is tried up to 5 times, 0.1 seconds apart, before the save fails
+- `source_path`: The source directory being monitored; AC-3.12 defines what happens when `run` or `watch` gets another one
+- `destination_path`: The destination backup directory; AC-3.11 defines which directory counts when the folder was copied or moved
 - `log_file`: Name of the log file (always `backup.log`)
 - `debounce_seconds`: Wait time in seconds before backup (default: 2)
 - `excluded_patterns`: `.backup_state.json`, followed by the user-specified exclusion patterns for filenames
-- The user-specified patterns are the ones last given with `--exclude`; AC-3.6 to AC-3.10 define when they are saved and used
+- The user-specified patterns are the ones last given with `--exclude` or saved by `config`; AC-3.6 to AC-3.10 and FR-7 define when they are saved and used
 - Patterns support wildcards: `*` (any characters), `?` (single character)
 - Subdirectories are always excluded automatically
 
@@ -515,7 +660,9 @@ Plain text file with UTF-8 encoding, one log entry per line.
 
 **Session Structure:**
 
-Each execution of the script creates a session with:
+Each execution of `init`, `run` or `watch`, and each save in the `config` menu, creates a session;
+`config show` and quitting `config` without saving write nothing (AC-7.13).
+A session has:
 
 1. Session header with configuration
 2. Operation log entries
@@ -629,7 +776,7 @@ Each execution of the script creates a session with:
 
 - Python: 3.13.17+
 - `typer`: CLI framework with automatic help generation
-- `rich`: Enhanced terminal output (used by typer for help formatting)
+- `rich`: Enhanced terminal output (used by typer for help formatting) and the prompts of the `config` menu
 - `watchdog`: File system event monitoring (required for watch command)
 - `pathlib`: Built-in, for path operations
 - `shutil`: Built-in, for file copying
