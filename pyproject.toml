@@ -51,6 +51,11 @@ prerelease = false
 [tool.semantic_release.commit_parser_options]
 # Rebase-merge only; see CONTRIBUTING.md "Commit Message Format".
 parse_squash_commits = false
+# The commit types of [tool.commitizen] below, except revert; see CONTRIBUTING.md "Commit Message Format".
+minor_tags = ["feat"]
+patch_tags = ["fix"]
+other_allowed_tags = ["build", "chore", "ci", "docs", "style", "refactor", "test"]
+allowed_tags = ["feat", "fix", "build", "chore", "ci", "docs", "style", "refactor", "test"]
 
 [tool.semantic_release.changelog]
 exclude_commit_patterns = [
@@ -63,6 +68,18 @@ keep_trailing_newline = true
 
 [tool.semantic_release.remote]
 type = "github"
+
+
+[tool.commitizen]
+# The commit message rule; CONTRIBUTING.md "Commit Message Format" explains it.
+name = "cz_customize"
+# No message escapes the pattern: Merge, Revert, fixup!, squash! and the like fail.
+allowed_prefixes = []
+
+[tool.commitizen.customize]
+schema = "<type>(<scope>)!: <subject> (#<issue>, #<issue>)"
+example = "feat(cli): add the config command (#12)"
+schema_pattern = '(?s)(?#Commit message rule: see CONTRIBUTING.md, section "Commit Message Format".)(?!(?:docs|style|refactor|test|ci|chore|revert)(?:\([^()\s]+\))?: BREAKING[ -]CHANGE:)(?!(?:docs|style|refactor|test|ci|chore|revert)[^\n]*(?:\n.*)?\n[^\S\n]*BREAKING[ -]CHANGE:)(?!.*[^\n]\n[^\S\n]*BREAKING[ -]CHANGE:)(?:(?:feat|fix|build)(?:\([^()\s]+\))?!?|(?:docs|style|refactor|test|ci|chore|revert)(?:\([^()\s]+\))?): (?!\s)(?:(?!#\s*\d)(?!\)!?:)[^\n])+?(?: \(#\d+(?:, #\d+)*\))?[ \t]*(?:\n\n.*)?\Z'
 
 
 [tool.pytest.ini_options]

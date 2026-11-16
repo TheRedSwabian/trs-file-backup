@@ -38,7 +38,7 @@ See the `.vscode/tasks.json` for more details.
 
 ## Committing changes
 
-Pre-commit checks every commit message against the [conventional commit format](https://www.conventionalcommits.org/en).
+Pre-commit checks every commit message against the rule in [Commit Message Format](#commit-message-format).
 The check runs in the [commitizen](https://github.com/commitizen-tools/commitizen) hook.
 Install the git hooks once per clone:
 
@@ -48,25 +48,44 @@ uv run pre-commit install
 
 `.pre-commit-config.yaml` sets `default_install_hook_types`,
 so this installs the `commit-msg` hook for the message check as well as the `pre-commit` hook for the checks on the staged files.
-CI does not check commit messages: a commit made without the hooks goes through unchecked.
+CI runs the same commitizen hook on every pull request to `develop`, so a commit made without the hooks is caught there.
+The `commit-messages` job checks each commit that the pull request adds on top of `develop`, one message at a time, and fails if any message breaks the rule.
 
 ### Commit Message Format
 
-Commit messages must follow the Conventional Commits format. The commit type determines how the version is bumped:
+This rule is binding: the `commit-msg` hook and the CI check reject every message that breaks it.
+It follows [Conventional Commits](https://www.conventionalcommits.org/en), with the restrictions below.
+`[tool.commitizen]` in `pyproject.toml` holds it as a regular expression, and `tests/test_commit_message_rule.py` tests it.
 
 ```text
-<type>(<scope>): <subject>
+<type>(<scope>)!: <subject> (#<issue>, #<issue>)
 
 <body>
 
 <footer>
 ```
 
+- `<type>` is one of the types in the list below, in lowercase. No other word is accepted.
+- `(<scope>)` is optional, for example `fix(cli): ...`. It has no spaces.
+- `!` marks a breaking change. Only `feat`, `fix` and `build` may carry it.
+- A `BREAKING CHANGE:` or `BREAKING-CHANGE:` footer also marks a breaking change, and only the same three types may carry it.
+  The footer is a paragraph of its own: the line directly before it must be empty, because semantic-release does not see it otherwise.
+  For the other types, no line may start with these words, not even an indented line or the subject itself, because semantic-release would read them as a breaking change.
+- After the colon comes exactly one space, then the subject.
+- The subject must not contain `)` directly followed by `:` or `!:`, as in `x (b)!: y`.
+  In a message with a scope, semantic-release would read everything up to that point as the scope, and with `!` as a breaking change.
+- The subject may end with issue references in parentheses, such as ` (#12)` or ` (#12, #15)`.
+  Any other `#` followed by a number in the subject fails, for example `fix: x #30` or `fix: x (#30) more`.
+  The body and the footer may mention issues freely, such as `Closes #3`.
+- Spaces or tabs at the end of the subject line are allowed.
+- An empty line separates the body from the subject; a body line directly below the subject fails.
+  Empty means empty: a line that holds only spaces does not count.
+- No special prefixes exist: messages that start with `Merge`, `Revert "`, `Pull request`, `fixup!`, `squash!` or `amend!` fail.
+
 **Commit Types and Version Impact:**
 
 - `feat:` - New feature → **Minor version bump** (1.0.0 → 1.1.0)
 - `fix:` - Bug fix → **Patch version bump** (1.0.0 → 1.0.1)
-- `perf:` - Performance improvement → **Patch version bump** (1.0.0 → 1.0.1)
 - `docs:` - Documentation only → No version bump
 - `style:` - Code style/formatting → No version bump
 - `refactor:` - Code refactoring → No version bump
@@ -74,11 +93,28 @@ Commit messages must follow the Conventional Commits format. The commit type det
 - `build:` - Build system, packaging or dependencies → No version bump
 - `ci:` - CI configuration → No version bump
 - `chore:` - Maintenance tasks → No version bump
-- `revert:` - Reverting an earlier commit → No version bump, because semantic-release does not know this type
-- `<type>!:` or a `BREAKING CHANGE:` footer, with any type above except `revert` - Breaking change → **Major version bump** (1.0.0 → 2.0.0)
+- `revert:` - Reverting an earlier commit that is not released yet → No version bump, because semantic-release does not know this type
+- `feat!:`, `fix!:` or `build!:`, or a breaking change footer on one of these types - Breaking change → **Major version bump** (1.0.0 → 2.0.0)
+
+Reverting a change that is already released on PyPI is typed `fix:`, for example `fix: revert debounce change from 3.1.0`.
+`revert:` triggers no release, so users would keep the released change.
+
+There is no `perf` type: use `fix` for a speed-up that users notice, `refactor` for one they do not.
+The type list in `[tool.semantic_release.commit_parser_options]` in `pyproject.toml` must match this list, apart from `revert`.
 
 semantic-release reads the type from the subject line only: a body line that starts with `fix:` or `feat:` bumps nothing.
 `pyproject.toml` sets this with `parse_squash_commits = false`, because the repository only rebase-merges and so has no squash commits.
+
+**Git actions whose messages fail, and what to do instead:**
+
+- `git revert` writes `Revert "feat: x"` and does not run the `commit-msg` hook, so only CI rejects it.
+  Rewrite the message right after the revert with `git commit --amend`: `revert: x`, or `fix: ...` when the reverted change is already released.
+- `git merge`, or `git pull` without `--rebase` on a branch that has diverged, creates a merge commit, and merge messages fail.
+  Use `git pull --rebase`, and rebase your branch onto `develop` instead of merging `develop` into it.
+- `git commit --fixup` and `git commit --squash` create `fixup!` and `squash!` commits, and the hook rejects them.
+  Fold the change into the earlier commit instead, for example with `git commit --amend` when that commit is the last one.
+- On GitHub, the "Update branch" button merges `develop` into the pull request, and the "Revert" button creates `Revert "…"` commits: the CI check fails on both.
+  Rebase the branch locally instead, and write revert commits by hand as described above.
 
 **Examples:**
 
