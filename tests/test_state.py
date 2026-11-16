@@ -38,6 +38,58 @@ class TestStateManager:
         assert len(state.files) == 2
         assert state.files["file1.txt"] == 1736772622.5
 
+    def test_save_retries_when_the_rename_is_briefly_blocked(self, mocker: MockFixture, tmp_path: Path) -> None:
+        """Windows: an antivirus or the indexer may hold the new file for a moment, so os.replace fails once."""
+        from trs_file_backup.state import StateManager
+
+        replace = mocker.patch("os.replace", side_effect=[PermissionError("in use"), None])
+        mocker.patch("time.sleep")
+        state = StateManager(tmp_path, tmp_path, 2, [".backup_state.json"], {})
+
+        state.save()
+
+        assert replace.call_count == 2
+
+    def test_save_gives_up_after_a_bounded_number_of_attempts(self, mocker: MockFixture, tmp_path: Path) -> None:
+        from trs_file_backup.state import StateManager
+
+        replace = mocker.patch("os.replace", side_effect=PermissionError("in use"))
+        sleep = mocker.patch("time.sleep")
+        state = StateManager(tmp_path, tmp_path, 2, [".backup_state.json"], {})
+
+        with pytest.raises(PermissionError):
+            state.save()
+
+        assert replace.call_count == 5
+        assert sleep.call_count == 4
+
+    def test_save_does_not_retry_other_errors(self, mocker: MockFixture, tmp_path: Path) -> None:
+        from trs_file_backup.state import StateManager
+
+        replace = mocker.patch("os.replace", side_effect=FileNotFoundError("gone"))
+        mocker.patch("time.sleep")
+        state = StateManager(tmp_path, tmp_path, 2, [".backup_state.json"], {})
+
+        with pytest.raises(FileNotFoundError):
+            state.save()
+
+        assert replace.call_count == 1
+
+    def test_load_takes_destination_from_the_folder_that_holds_the_file(self, tmp_path: Path) -> None:
+        """Spec AC-3.11: a copied or moved backup folder is the destination, not the path stored in the file."""
+        from trs_file_backup.state import StateManager
+
+        moved = tmp_path / "moved"
+        moved.mkdir()
+        stored = {"source_path": "/source", "destination_path": "/old/dest", "debounce_seconds": 2, "excluded_patterns": [".backup_state.json"], "files": {}}
+        (moved / ".backup_state.json").write_text(json.dumps(stored), encoding="utf-8")
+
+        state = StateManager.load(moved / ".backup_state.json")
+
+        assert state is not None
+        assert state.destination_path == moved
+        assert state.state_file_path == moved / ".backup_state.json"
+
     def test_load_state_file_not_exists(self, mocker: MockFixture) -> None:
         """Test loading when state file doesn't exist returns None."""
         mocker.patch("pathlib.Path.exists", return_value=False)
