@@ -1,7 +1,11 @@
 """State management for backup operations."""
 
 import json
+import time
 from pathlib import Path
+
+REPLACE_ATTEMPTS = 5
+REPLACE_RETRY_DELAY_SECONDS = 0.1
 
 
 class StateManager:
@@ -46,6 +50,10 @@ class StateManager:
         Args:
             state_file_path: Path to the state file
 
+        The destination is the folder that holds the state file, not the path stored in it,
+        so that a copied or moved backup folder never writes into the old one (spec AC-3.11).
+        The next save stores the corrected path.
+
         Returns:
             StateManager instance if file exists, None otherwise
 
@@ -61,7 +69,7 @@ class StateManager:
 
         return cls(
             source_path=Path(data["source_path"]),
-            destination_path=Path(data["destination_path"]),
+            destination_path=path.parent,
             debounce_seconds=data["debounce_seconds"],
             excluded_patterns=data["excluded_patterns"],
             files=data["files"],
@@ -95,7 +103,15 @@ class StateManager:
 
         # Rename temp file to actual file (atomic on most filesystems)
         # Use os.replace for cross-platform atomic replacement
-        os.replace(str(temp_file), str(self.state_file_path))
+        for attempt in range(1, REPLACE_ATTEMPTS + 1):
+            try:
+                os.replace(str(temp_file), str(self.state_file_path))
+                return
+            except PermissionError:
+                # On Windows an antivirus or the indexer may hold the new file for a moment
+                if attempt == REPLACE_ATTEMPTS:
+                    raise
+                time.sleep(REPLACE_RETRY_DELAY_SECONDS)
 
     def update_file_timestamp(self, filename: str, timestamp: float) -> None:
         """Update or add file timestamp.
