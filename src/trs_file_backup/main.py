@@ -30,6 +30,38 @@ Use 'trs-file-backup COMMAND --help' for detailed information on each command.
 )
 console = Console()
 
+STATE_FILE_NAME = ".backup_state.json"
+DEFAULT_DEBOUNCE_SECONDS = 2
+DEBOUNCE_DEFAULT_HELP = f"saved value, else {DEFAULT_DEBOUNCE_SECONDS}"
+
+
+def exclusion_patterns(user_patterns: list[str]) -> list[str]:
+    """Return the state file pattern followed by the user patterns, each pattern once (spec AC-3.10)."""
+    return list(dict.fromkeys([STATE_FILE_NAME, *user_patterns]))
+
+
+def resolve_settings(state: StateManager | None, exclude: list[str], debounce: int | None) -> tuple[list[str], int]:
+    """Return the exclusion patterns and debounce delay that run and watch use (spec AC-3.7 to AC-3.10).
+
+    A given option replaces the saved value; an option not given falls back to the saved value,
+    or to the default when there is no state file. An empty exclude list means "not given".
+    """
+    if exclude:
+        user_patterns = exclude
+    elif state is not None:
+        user_patterns = state.excluded_patterns
+    else:
+        user_patterns = []
+
+    if debounce is not None:
+        debounce_seconds = debounce
+    elif state is not None:
+        debounce_seconds = state.debounce_seconds
+    else:
+        debounce_seconds = DEFAULT_DEBOUNCE_SECONDS
+
+    return exclusion_patterns(user_patterns), debounce_seconds
+
 
 def version_callback(value: bool) -> None:
     """Show version and exit."""
@@ -101,7 +133,7 @@ def init(
     debounce: int = typer.Option(
         2,
         "--debounce",
-        help="Seconds to wait before backup (default: 2)",
+        help="Seconds to wait before backup",
         min=0,
     ),
 ) -> None:
@@ -120,12 +152,12 @@ def init(
       trs-file-backup init --source ./src --destination ./backup --exclude "*.log" --exclude "*.tmp" --debounce 5
 
     Note:
-      Exclusion patterns and debounce setting specified here are saved and used for all future backups.
+      Exclusion patterns and debounce setting specified here are saved.
+      Later 'run' and 'watch' commands use them, unless they are given --exclude or --debounce, which replaces the saved value.
     """
     logger = None
     try:
-        # Add default exclusions
-        excluded_patterns = [".backup_state.json", *exclude]
+        excluded_patterns = exclusion_patterns(exclude)
 
         # Create logger
         logger = BackupLogger(destination)
@@ -192,13 +224,14 @@ def run(
         [],
         "--exclude",
         metavar="PATTERN",
-        help="File/directory patterns to exclude (can be repeated)",
+        help="File/directory patterns to exclude (can be repeated). Replaces the saved patterns; if not given, the saved patterns are used",
     ),
-    debounce: int = typer.Option(
-        2,
+    debounce: int | None = typer.Option(
+        None,
         "--debounce",
-        help="Seconds to wait before backup (default: 2)",
+        help="Seconds to wait before backup. Replaces the saved value; if not given, the saved value is used",
         min=0,
+        show_default=DEBOUNCE_DEFAULT_HELP,
     ),
     dry_run: bool = typer.Option(
         False,
@@ -228,26 +261,24 @@ def run(
     """
     logger = None
     try:
-        # Add default exclusions
-        excluded_patterns = [".backup_state.json", *exclude]
-
         # Load or create state
-        state_file = destination / ".backup_state.json"
+        state_file = destination / STATE_FILE_NAME
         state = StateManager.load(state_file)
+        excluded_patterns, debounce_seconds = resolve_settings(state, exclude, debounce)
 
         if state is None:
             # Create new state
             state = StateManager(
                 source_path=source,
                 destination_path=destination,
-                debounce_seconds=debounce,
+                debounce_seconds=debounce_seconds,
                 excluded_patterns=excluded_patterns,
                 files={},
             )
         else:
-            # Update state with current parameters
+            # Store the settings this session uses
             state.excluded_patterns = excluded_patterns
-            state.debounce_seconds = debounce
+            state.debounce_seconds = debounce_seconds
 
         # Create logger
         logger = BackupLogger(destination)
@@ -258,7 +289,7 @@ def run(
             source_path=source,
             destination_path=destination,
             excluded_patterns=excluded_patterns,
-            debounce_seconds=debounce,
+            debounce_seconds=debounce_seconds,
         )
 
         # Create backup manager
@@ -276,6 +307,9 @@ def run(
 
         if len(files_to_backup) == 0:
             console.print("[yellow]No modified files found.[/yellow]")
+            if not dry_run and (exclude or debounce is not None):
+                # A given option is saved even when nothing is backed up (spec AC-3.8)
+                state.save()
             logger.log_session_end(0, 0)
             return
 
@@ -298,7 +332,7 @@ def run(
         for file in files_to_backup:
             try:
                 # Wait debounce time
-                time.sleep(debounce)
+                time.sleep(debounce_seconds)
 
                 # Backup file
                 timestamp = datetime.now()
@@ -464,13 +498,14 @@ def watch(
         [],
         "--exclude",
         metavar="PATTERN",
-        help="File/directory patterns to exclude (can be repeated)",
+        help="File/directory patterns to exclude (can be repeated). Replaces the saved patterns; if not given, the saved patterns are used",
     ),
-    debounce: int = typer.Option(
-        2,
+    debounce: int | None = typer.Option(
+        None,
         "--debounce",
-        help="Seconds to wait after modification before backup",
+        help="Seconds to wait after modification before backup. Replaces the saved value; if not given, the saved value is used",
         min=0,
+        show_default=DEBOUNCE_DEFAULT_HELP,
     ),
 ) -> None:
     """Continuously monitor and backup files in real-time.
@@ -498,26 +533,24 @@ def watch(
     """
     logger = None
     try:
-        # Add default exclusions
-        excluded_patterns = [".backup_state.json", *exclude]
-
         # Load or create state
-        state_file = destination / ".backup_state.json"
+        state_file = destination / STATE_FILE_NAME
         state = StateManager.load(state_file)
+        excluded_patterns, debounce_seconds = resolve_settings(state, exclude, debounce)
 
         if state is None:
             # Create new state
             state = StateManager(
                 source_path=source,
                 destination_path=destination,
-                debounce_seconds=debounce,
+                debounce_seconds=debounce_seconds,
                 excluded_patterns=excluded_patterns,
                 files={},
             )
         else:
-            # Update state with current parameters
+            # Store the settings this session uses
             state.excluded_patterns = excluded_patterns
-            state.debounce_seconds = debounce
+            state.debounce_seconds = debounce_seconds
 
         # Save state
         state.save()
@@ -531,7 +564,7 @@ def watch(
             source_path=source,
             destination_path=destination,
             excluded_patterns=excluded_patterns,
-            debounce_seconds=debounce,
+            debounce_seconds=debounce_seconds,
         )
         logger.log_watch_started()
 
@@ -548,7 +581,7 @@ def watch(
             backup_manager=backup_manager,
             state=state,
             logger=logger,
-            debounce_seconds=debounce,
+            debounce_seconds=debounce_seconds,
         )
 
         # Start observer
