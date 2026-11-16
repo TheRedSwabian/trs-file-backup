@@ -52,6 +52,15 @@ The tool shall be implemented as a Python command-line application with comprehe
 - AC-3.3: The state file shall contain both source and destination directory paths
 - AC-3.4: On first run (no state file exists), all files shall be backed up
 - AC-3.5: The state file shall be updated after each successful backup operation
+- AC-3.6: The state file shall store the exclusion patterns and the debounce delay (the saved settings); `init` saves the values given to it
+- AC-3.7: `run` and `watch` shall use the saved exclusion patterns when `--exclude` is not given, and the saved debounce delay when `--debounce` is not given
+- AC-3.8: A given `--exclude` shall replace the saved user patterns (not be added to them), and a given `--debounce` shall replace the saved delay.
+  The new values shall be saved in the state file, also when `run` finds no modified files.
+  Only `run --dry-run` never writes the state file.
+  `--debounce 0` is a given value.
+- AC-3.9: Without a state file, `run` and `watch` shall use the defaults: no user patterns and a debounce delay of 2 seconds
+- AC-3.10: The pattern `.backup_state.json` shall appear exactly once in the exclusion patterns that `init`, `run` and `watch` use and save;
+  a pattern given twice shall be saved once
 
 ### FR-4: Exclusion Patterns
 
@@ -68,6 +77,7 @@ The tool shall be implemented as a Python command-line application with comprehe
 - AC-4.5: Exclusion patterns shall support wildcards (e.g., `*.log`, `temp_*`)
 - AC-4.6: Exclusion patterns shall be matched against the filename only (not paths)
 - AC-4.7: All subdirectories are automatically excluded (only top-level files are processed)
+- AC-4.8: AC-3.6 to AC-3.10 define how exclusion patterns are saved and which patterns `run` and `watch` use
 
 ### FR-5: Real-Time File System Monitoring
 
@@ -81,7 +91,8 @@ The tool shall be implemented as a Python command-line application with comprehe
 - AC-5.2: The system shall detect file modification events in real-time using file system monitoring
 - AC-5.3: The system shall trigger a backup automatically when a file is modified
 - AC-5.4: The system shall wait for a file to be fully written before backing it up (debounce mechanism)
-- AC-5.5: The system shall use a debounce delay of 2 seconds (no backup if file modified again within 2 seconds)
+- AC-5.5: The system shall use the configured debounce delay, default 2 seconds (no backup if the file is modified again within that delay).
+  AC-3.6 to AC-3.9 define which delay is used
 - AC-5.6: The system shall handle files that are locked or being written by another process (skip with warning)
 - AC-5.7: The system shall log each backup operation with timestamp
 - AC-5.8: The system shall continue running until explicitly stopped by the user (Ctrl+C)
@@ -107,7 +118,8 @@ The tool shall be implemented as a Python command-line application with comprehe
 - AC-6.10: The log file shall be a plain text file with UTF-8 encoding
 - AC-6.11: Log entries shall be appended to the existing log file (not overwritten)
 - AC-6.12: All script interruptions and exceptions shall be logged with appropriate level
-- AC-6.13: Each session shall start with a session header logging source path, destination path, and exclusion patterns
+- AC-6.13: Each session shall start with a session header logging source path, destination path,
+  and the exclusion patterns and debounce delay the session actually uses (after AC-3.7 to AC-3.10 are applied)
 - AC-6.14: Each session shall end with a session summary logging completion status and statistics
 - AC-6.15: During a session, settings (paths, excludes) shall not be logged repeatedly
 - AC-6.16: All excluded files encountered during a session shall be logged with level `WARNING`
@@ -205,7 +217,7 @@ Examples:
 **Syntax:**
 
 ```bash
-trs-file-backup run --source <path> --destination <path> [--exclude <pattern>] [--dry-run]
+trs-file-backup run --source <path> --destination <path> [--exclude <pattern>] [--debounce <seconds>] [--dry-run]
 # Help
 trs-file-backup run --help
 ```
@@ -214,8 +226,10 @@ trs-file-backup run --help
 
 - `--source`: Path to the source directory to monitor (required)
 - `--destination`: Path to the destination backup directory (required)
-- `--exclude`: Pattern for files/directories to exclude (optional, can be specified multiple times)
-- `--debounce`: Seconds to wait before backup (optional, default: 2)
+- `--exclude`: Pattern for files/directories to exclude (optional, can be specified multiple times).
+  It replaces the saved patterns; without it, the saved patterns are used (AC-3.7, AC-3.8)
+- `--debounce`: Seconds to wait before backup (optional).
+  It replaces the saved value; without it, the saved value is used, or 2 if none is saved (AC-3.7 to AC-3.9)
 - `--dry-run`: Show what would be backed up without actually copying files (optional)
 
 **Help Output:**
@@ -232,8 +246,12 @@ Usage: trs-file-backup run [OPTIONS]
 Options:
   --source PATH           Source directory to monitor [required]
   --destination PATH      Destination backup directory [required]
-  --exclude PATTERN       File/directory patterns to exclude (can be repeated)
-  --debounce INTEGER      Seconds to wait before backup (default: 2)
+  --exclude PATTERN       File/directory patterns to exclude (can be repeated).
+                          Replaces the saved patterns; if not given, the saved
+                          patterns are used
+  --debounce INTEGER      Seconds to wait before backup. Replaces the saved
+                          value; if not given, the saved value is used
+                          [default: (saved value, else 2)]
   --dry-run              Show what would be backed up without copying
   --help, -h             Show this message and exit
 
@@ -291,7 +309,7 @@ Logging to: C:\Backup\MyApp\backup.log
 **Syntax:**
 
 ```bash
-trs-file-backup init --source <path> --destination <path> [--exclude <pattern>]
+trs-file-backup init --source <path> --destination <path> [--exclude <pattern>] [--debounce <seconds>]
 # Help
 trs-file-backup init --help
 ```
@@ -310,15 +328,15 @@ Usage: trs-file-backup init [OPTIONS]
 
   Initialize backup tracking for a directory
 
-  This command sets up backup tracking by creating a state file in the source
-  directory. The next 'run' or 'watch' command will back up all files (first
+  This command sets up backup tracking by creating a state file in the
+  destination directory. The next 'run' or 'watch' command will back up all files (first
   full backup). Subsequent runs will only backup modified files.
 
 Options:
   --source PATH           Source directory to monitor [required]
   --destination PATH      Destination backup directory [required]
   --exclude PATTERN       File/directory patterns to exclude (can be repeated)
-  --debounce INTEGER      Seconds to wait before backup (default: 2)
+  --debounce INTEGER      Seconds to wait before backup [default: 2]
   --help, -h             Show this message and exit
 
 Examples:
@@ -329,7 +347,8 @@ Examples:
   trs-file-backup init --source ./src --destination ./backup --exclude "*.log" --exclude "*.tmp" --debounce 5
 
 Note:
-  Exclusion patterns and debounce setting specified here are saved and used for all future backups.
+  Exclusion patterns and debounce setting specified here are saved.
+  Later 'run' and 'watch' commands use them, unless they are given --exclude or --debounce, which replaces the saved value.
 ```
 
 **Command Output:**
@@ -371,8 +390,10 @@ trs-file-backup watch --help
 
 - `--source`: Path to the source directory to monitor (required)
 - `--destination`: Path to the destination backup directory (required)
-- `--exclude`: Pattern for files/directories to exclude (optional, can be specified multiple times)
-- `--debounce`: Seconds to wait after file modification before backup (optional, default: 2)
+- `--exclude`: Pattern for files/directories to exclude (optional, can be specified multiple times).
+  It replaces the saved patterns; without it, the saved patterns are used (AC-3.7, AC-3.8)
+- `--debounce`: Seconds to wait after file modification before backup (optional).
+  It replaces the saved value; without it, the saved value is used, or 2 if none is saved (AC-3.7 to AC-3.9)
 
 **Help Output:**
 
@@ -389,9 +410,12 @@ Usage: trs-file-backup watch [OPTIONS]
 Options:
   --source PATH           Source directory to monitor [required]
   --destination PATH      Destination backup directory [required]
-  --exclude PATTERN       File/directory patterns to exclude (can be repeated)
-  --debounce INTEGER      Seconds to wait after modification before backup
-                          [default: 2]
+  --exclude PATTERN       File/directory patterns to exclude (can be repeated).
+                          Replaces the saved patterns; if not given, the saved
+                          patterns are used
+  --debounce INTEGER      Seconds to wait after modification before backup.
+                          Replaces the saved value; if not given, the saved
+                          value is used [default: (saved value, else 2)]
   --help, -h             Show this message and exit
 
 Examples:
@@ -478,8 +502,8 @@ Ctrl+C detected. Stopping file system monitor...
 - `destination_path`: The destination backup directory
 - `log_file`: Name of the log file (always `backup.log`)
 - `debounce_seconds`: Wait time in seconds before backup (default: 2)
-- `excluded_patterns`: Contains user-specified exclusion patterns for filenames
-- User-specified patterns (via `--exclude`) are appended to the list
+- `excluded_patterns`: `.backup_state.json`, followed by the user-specified exclusion patterns for filenames
+- The user-specified patterns are the ones last given with `--exclude`; AC-3.6 to AC-3.10 define when they are saved and used
 - Patterns support wildcards: `*` (any characters), `?` (single character)
 - Subdirectories are always excluded automatically
 
@@ -569,7 +593,7 @@ Each execution of the script creates a session with:
 - Monitor only the top-level directory (do not watch subdirectories recursively)
 - Implement debouncing to wait for files to finish writing
 - Debounce delay is configurable via `--debounce` parameter (default: 2 seconds)
-- Store debounce setting in state file for consistency across runs
+- The debounce delay is saved in the state file; AC-3.6 to AC-3.9 define which delay `run` and `watch` use
 - Use a timer-based approach: reset timer on each modification event, trigger backup when timer expires
 - Handle file locking gracefully using try-except around file operations
 - Log skipped files (locked/excluded) separately from successful backups
