@@ -2,6 +2,43 @@
 
 <!-- version list -->
 
+## v3.1.0 (2026-11-16)
+
+### Bug Fixes
+
+- Keep the state file in the given backup folder
+  ([`3e4ac89`](https://github.com/TheRedSwabian/trs-file-backup/commit/3e4ac8914a28f274db1def2ba6271fb14109db70))
+
+- Use the exclude patterns and debounce saved in the state file
+  ([`50acfbe`](https://github.com/TheRedSwabian/trs-file-backup/commit/50acfbe5b4976fb37ed62d30d81bc3d026829a62))
+
+### Build System
+
+- Update uv.lock in the release commit
+  ([`846cd9a`](https://github.com/TheRedSwabian/trs-file-backup/commit/846cd9a86c5709a90a476f8b1f132cf71d30515c))
+
+### Documentation
+
+- Regenerate CHANGELOG in the v10 format
+  ([`45aaad2`](https://github.com/TheRedSwabian/trs-file-backup/commit/45aaad280570882a7e96c6c48d758e4eb8769951))
+
+- Specify that run and watch use the saved settings
+  ([`b7c69e8`](https://github.com/TheRedSwabian/trs-file-backup/commit/b7c69e89124b19cf89c73c092bb52a02ca2277b5))
+
+- Specify the config command and the folder rules of the state file
+  ([`92f42e9`](https://github.com/TheRedSwabian/trs-file-backup/commit/92f42e97dca57ac152cf9eb05dd07868b3c062aa))
+
+### Features
+
+- Add config command to show and edit the saved settings
+  ([`882ad29`](https://github.com/TheRedSwabian/trs-file-backup/commit/882ad29bb96fb563ee610bc27f7413aa04f9f3f3))
+
+### Refactoring
+
+- Read the version from the installed package metadata
+  ([`14c407d`](https://github.com/TheRedSwabian/trs-file-backup/commit/14c407d2190552bda64ac0385a490c2a7aa3c8da))
+
+
 ## v3.0.1 (2026-11-13)
 
 ### Bug Fixes
