@@ -78,6 +78,12 @@ jobs:
           shas=$(git rev-list --reverse HEAD^1..HEAD^2)
           for sha in $shas; do
             git log -1 --format=%B "$sha" > "$msg_file"
+            # commitizen reads CRLF as LF, but semantic-release does not, so a CRLF message could hide a breaking footer.
+            if ! tr -d '\r' < "$msg_file" | cmp -s - "$msg_file"; then
+              echo "::error::Commit $sha has Windows line endings (CRLF) in its message; see CONTRIBUTING.md, section \"Commit Message Format\"."
+              status=1
+              continue
+            fi
             if ! uv run --locked pre-commit run commitizen --hook-stage commit-msg --commit-msg-filename "$msg_file"; then
               echo "::error::Commit $sha breaks the commit message rule; see CONTRIBUTING.md, section \"Commit Message Format\"."
               status=1

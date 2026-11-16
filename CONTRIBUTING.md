@@ -80,6 +80,7 @@ It follows [Conventional Commits](https://www.conventionalcommits.org/en), with 
 - Spaces or tabs at the end of the subject line are allowed.
 - An empty line separates the body from the subject; a body line directly below the subject fails.
   Empty means empty: a line that holds only spaces does not count.
+- The message uses LF line endings only. `git commit` writes them; CI rejects a message with Windows line endings (CRLF), which a commit made outside git (web editor, API) might carry, because semantic-release would then miss a breaking footer.
 - No special prefixes exist: messages that start with `Merge`, `Revert "`, `Pull request`, `fixup!`, `squash!` or `amend!` fail.
 
 **Commit Types and Version Impact:**
