@@ -12,17 +12,26 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.3.3
-      - run: uv run pre-commit run --all-files
+      - run: uv run --locked pre-commit run --all-files
 
   test:
     runs-on: ubuntu-latest
     permissions:
       checks: write
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.13", "3.14", "3.15"]
+    env:
+      # Overrides the 3.13-only range in .python-version for this matrix entry.
+      UV_PYTHON: ${{ matrix.python-version }}
+      # Only uv-managed Pythons, so a runner's older 3.13 patch below requires-python is never picked.
+      UV_PYTHON_PREFERENCE: only-managed
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.3.3
-      - run: uv sync --group dev
-      - run: uv run pytest --cov-report=xml:coverage.xml --junitxml=junit.xml
+      - run: uv sync --locked --group dev
+      - run: uv run --locked pytest --cov-report=xml:coverage.xml --junitxml=junit.xml
 
       - name: Upload coverage to Codecov
         if: always()
@@ -46,7 +55,7 @@ jobs:
         uses: mikepenz/action-junit-report@v6
         with:
           report_paths: junit.xml
-          check_name: Test Results
+          check_name: Test Results (Python ${{ matrix.python-version }})
           fail_on_failure: true
           require_tests: true
           detailed_summary: true
