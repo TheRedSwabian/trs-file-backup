@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from unittest.mock import Mock
 
+import pytest
 from pytest_mock import MockFixture
 
 
@@ -249,6 +250,25 @@ class TestBackupLogger:
         mock_logger.info.assert_called()
         call_str = str(mock_logger.info.call_args)
         assert "initialized" in call_str.lower() or "init" in call_str.lower()
+
+    @pytest.mark.parametrize(
+        ("changes", "expected"),
+        [(["added pattern *.tmp", "removed pattern *.log"], "Settings changed: added pattern *.tmp; removed pattern *.log"), ([], "Settings saved without changes")],
+        ids=["changes", "no-changes"],
+    )
+    def test_log_settings_saved(self, mocker: MockFixture, changes: list[str], expected: str) -> None:
+        from trs_file_backup.logger import BackupLogger
+
+        mock_logger = Mock()
+        mock_logger.handlers = []
+        _patch_backup_logger(mocker, mock_logger)
+        mocker.patch("pathlib.Path.mkdir")
+        mocker.patch("logging.FileHandler")
+
+        logger = BackupLogger(Path("/dest"))
+        logger.log_settings_saved(changes)
+
+        mock_logger.info.assert_called_once_with(expected)
 
     def test_log_found_files(self, mocker: MockFixture) -> None:
         """Test logging number of files found."""

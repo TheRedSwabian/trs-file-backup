@@ -56,7 +56,7 @@ class BackupLogger:
         """Log session start with configuration.
 
         Args:
-            command: Command being executed (init, run, watch)
+            command: Command being executed (init, run, watch, config)
             source_path: Source directory path
             destination_path: Destination directory path
             excluded_patterns: List of exclusion patterns
@@ -87,6 +87,17 @@ class BackupLogger:
     def log_init_success(self) -> None:
         """Log successful initialization."""
         self.logger.info("Backup tracking initialized successfully")
+
+    def log_settings_saved(self, changes: list[str]) -> None:
+        """Log what the config command changed in the saved settings.
+
+        Args:
+            changes: One short description per change, in the order they are logged
+        """
+        if changes:
+            self.logger.info(f"Settings changed: {'; '.join(changes)}")
+        else:
+            self.logger.info("Settings saved without changes")
 
     def log_found_files(self, count: int) -> None:
         """Log number of files found.

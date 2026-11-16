@@ -1,12 +1,15 @@
 """Main CLI application for trs-file-backup."""
 
+import sys
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import typer
 from rich.console import Console
+from rich.prompt import Confirm, IntPrompt, Prompt
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
@@ -19,6 +22,7 @@ app = typer.Typer(
     name="trs-file-backup",
     help="trs-file-backup - Monitor and backup modified files with timestamps",
     add_completion=False,
+    context_settings={"help_option_names": ["-h", "--help"]},
     rich_markup_mode="rich",
     epilog="""\b
 Examples:
@@ -61,6 +65,25 @@ def resolve_settings(state: StateManager | None, exclude: list[str], debounce: i
         debounce_seconds = DEFAULT_DEBOUNCE_SECONDS
 
     return exclusion_patterns(user_patterns), debounce_seconds
+
+
+class SourceMismatchError(ValueError):
+    """The --source given to run or watch is not the source the backup folder was set up for (spec AC-3.12)."""
+
+
+def check_source(state: StateManager | None, source: Path, destination: Path) -> None:
+    """Raise SourceMismatchError when the saved source is another directory than the resolved --source.
+
+    The saved path is resolved the same way; on Windows, Path comparison ignores letter case.
+    """
+    if state is None:
+        return
+    saved_source = state.source_path.resolve()
+    if saved_source != source:
+        raise SourceMismatchError(
+            f"the backup folder {destination} belongs to the source {saved_source}, not to {source}. "
+            "For another source, use another backup folder or run 'trs-file-backup init' again."
+        )
 
 
 def version_callback(value: bool) -> None:
@@ -264,6 +287,7 @@ def run(
         # Load or create state
         state_file = destination / STATE_FILE_NAME
         state = StateManager.load(state_file)
+        check_source(state, source, destination)
         excluded_patterns, debounce_seconds = resolve_settings(state, exclude, debounce)
 
         if state is None:
@@ -536,6 +560,7 @@ def watch(
         # Load or create state
         state_file = destination / STATE_FILE_NAME
         state = StateManager.load(state_file)
+        check_source(state, source, destination)
         excluded_patterns, debounce_seconds = resolve_settings(state, exclude, debounce)
 
         if state is None:
@@ -613,6 +638,260 @@ def watch(
     finally:
         if logger is not None:
             logger.close()
+
+
+config_app = typer.Typer(rich_markup_mode="rich")
+app.add_typer(config_app, name="config")
+
+CONFIG_ACTIONS = "  [1] change debounce   [2] add pattern   [3] remove pattern\n  [4] clear patterns    [s] save and quit [q] quit without saving"
+STOP_WATCH_NOTE = "Stop a running 'watch' and wait for a running 'run' to finish first: both write their own settings back and would overwrite your changes."
+DESTINATION_HELP = "Destination backup directory that holds the state file"
+
+
+@dataclass
+class SettingsDraft:
+    """The settings the config menu edits: the debounce delay and the user patterns, without the state file pattern."""
+
+    debounce_seconds: int
+    patterns: list[str]
+
+    @classmethod
+    def of(cls, state: StateManager) -> "SettingsDraft":
+        return cls(state.debounce_seconds, user_patterns(state.excluded_patterns))
+
+
+def user_patterns(patterns: list[str]) -> list[str]:
+    """Return the saved patterns without the state file pattern, each pattern once (spec AC-7.1)."""
+    return [pattern for pattern in exclusion_patterns(patterns) if pattern != STATE_FILE_NAME]
+
+
+def _stdin_is_terminal() -> bool:
+    """Tell whether standard input is a terminal, so that the config menu can ask (spec AC-7.2)."""
+    return sys.stdin.isatty()
+
+
+def _say(text: str) -> None:
+    """Print text as it is: patterns and paths may hold brackets that Rich would read as markup."""
+    console.print(text, markup=False, highlight=False, soft_wrap=True)
+
+
+def _error(text: str) -> NoReturn:
+    _say(f"Error: {text}")
+    raise typer.Exit(code=1)
+
+
+def _required_destination(destination: Path | None) -> Path:
+    if destination is None:
+        raise typer.BadParameter("required, give the backup directory that holds the state file.", param_hint="'--destination'")
+    return destination
+
+
+def _load_saved_state(destination: Path) -> StateManager:
+    """Load the state file, or end with exit code 1 without creating anything (spec AC-7.12)."""
+    state_file = destination / STATE_FILE_NAME
+    try:
+        state = StateManager.load(state_file)
+    except Exception as e:
+        _error(f"cannot read {state_file}: {e!r}")
+    if state is None:
+        _error(f"no saved settings in {destination}. Run 'trs-file-backup init' first.")
+    return state
+
+
+def _print_settings(source: Path, draft: SettingsDraft, saved: SettingsDraft) -> None:
+    """Print the settings and mark what differs from the saved ones (spec AC-7.1, AC-7.9)."""
+    _say("Saved settings")
+    _say(f"  Source:    {source}   (read-only)")
+    changed = "   (changed)" if draft.debounce_seconds != saved.debounce_seconds else ""
+    _say(f"  Debounce:  {draft.debounce_seconds} s{changed}")
+    if not draft.patterns:
+        _say("  Excluded:  (none)")
+    for number, pattern in enumerate(draft.patterns, start=1):
+        label = "  Excluded:  " if number == 1 else " " * 13
+        new = "" if pattern in saved.patterns else "   (new)"
+        _say(f"{label}{number}) {pattern}{new}")
+    removed = [pattern for pattern in saved.patterns if pattern not in draft.patterns]
+    if removed:
+        _say(f"  Removed:   {', '.join(removed)}")
+
+
+def _ask_debounce(current: int) -> int:
+    while True:
+        value = IntPrompt.ask("New debounce delay in seconds", default=current, console=console)
+        if value >= 0:
+            return value
+        _say("The debounce delay must be 0 or more seconds.")
+
+
+def _add_pattern(draft: SettingsDraft) -> None:
+    pattern = Prompt.ask("Pattern to add", default="", show_default=False, console=console).strip()
+    if not pattern:
+        _say("No pattern given; the list is unchanged.")
+    elif pattern == STATE_FILE_NAME:
+        _say(f"{STATE_FILE_NAME} is always excluded; the list is unchanged.")
+    elif pattern in draft.patterns:
+        _say(f"{pattern} is already excluded; the list is unchanged.")
+    else:
+        draft.patterns.append(pattern)
+
+
+def _remove_pattern(draft: SettingsDraft) -> None:
+    if not draft.patterns:
+        _say("There are no patterns to remove.")
+        return
+    number = IntPrompt.ask("Number of the pattern to remove", console=console)
+    if not 1 <= number <= len(draft.patterns):
+        _say(f"There is no pattern with number {number}; the list is unchanged.")
+        return
+    draft.patterns.pop(number - 1)
+
+
+def _changes(before: SettingsDraft, after: SettingsDraft) -> list[str]:
+    """Describe for the log what differs between two settings (spec AC-7.13)."""
+    changes = []
+    if after.debounce_seconds != before.debounce_seconds:
+        changes.append(f"debounce delay {before.debounce_seconds} -> {after.debounce_seconds} seconds")
+    changes += [f"added pattern {pattern}" for pattern in after.patterns if pattern not in before.patterns]
+    changes += [f"removed pattern {pattern}" for pattern in before.patterns if pattern not in after.patterns]
+    return changes
+
+
+def _save(destination: Path, draft: SettingsDraft) -> None:
+    """Write the draft through the atomic state file update and log it (spec AC-7.10, AC-7.13).
+
+    The state file is read again first, so that the tracked files a backup wrote meanwhile are kept.
+    """
+    state = _load_saved_state(destination)
+    on_disk = SettingsDraft.of(state)
+    state.excluded_patterns = exclusion_patterns(draft.patterns)
+    state.debounce_seconds = draft.debounce_seconds
+    try:
+        state.save()
+    except OSError as e:
+        _error(f"cannot save {state.state_file_path}: {e}")
+
+    try:
+        logger = BackupLogger(destination)
+        try:
+            logger.log_session_start(
+                command="config",
+                source_path=state.source_path,
+                destination_path=destination,
+                excluded_patterns=state.excluded_patterns,
+                debounce_seconds=state.debounce_seconds,
+            )
+            logger.log_settings_saved(_changes(on_disk, draft))
+            logger.log_session_end()
+        finally:
+            logger.close()
+    except OSError as e:
+        _error(f"the settings were saved to {state.state_file_path}, but {destination / 'backup.log'} could not be written: {e}")
+    _say(f"Saved to {state.state_file_path}. The changes take effect at the next start of 'run' or 'watch'.")
+
+
+def _run_menu(destination: Path, state: StateManager) -> None:
+    """Let the user edit a draft of the settings; write it only on save (spec AC-7.3 to AC-7.11)."""
+    saved = SettingsDraft.of(state)
+    draft = SettingsDraft(saved.debounce_seconds, list(saved.patterns))
+    _say(STOP_WATCH_NOTE)
+    try:
+        while True:
+            _say("")
+            _print_settings(state.source_path, draft, saved)
+            if draft != saved:
+                _say("Unsaved changes: choose s to save them.")
+            _say("")
+            _say(CONFIG_ACTIONS)
+            match Prompt.ask("Choose", choices=["1", "2", "3", "4", "s", "q"], console=console):
+                case "1":
+                    draft.debounce_seconds = _ask_debounce(draft.debounce_seconds)
+                case "2":
+                    _add_pattern(draft)
+                case "3":
+                    _remove_pattern(draft)
+                case "4":
+                    draft.patterns.clear()
+                case "s":
+                    _save(destination, draft)
+                    return
+                case _:
+                    if draft == saved or Confirm.ask("Discard the unsaved changes?", default=False, console=console):
+                        _say("Quit, nothing saved.")
+                        return
+    except EOFError:
+        _say("")
+        _say("Input ended, nothing saved.")
+        if draft != saved:
+            raise typer.Exit(code=1) from None
+
+
+@config_app.callback(invoke_without_command=True)
+def config(
+    ctx: typer.Context,
+    destination: Path | None = typer.Option(  # noqa: B008
+        None,
+        "--destination",
+        help=DESTINATION_HELP,
+        file_okay=False,
+        dir_okay=True,
+        resolve_path=True,
+    ),
+) -> None:
+    """Show and edit the saved settings (debounce delay and exclusion patterns).
+
+    Without a subcommand, this opens a menu to change the debounce delay and to add,
+    remove or clear exclusion patterns. Nothing is written before you choose save.
+    When input does not come from a terminal, it prints the settings like 'config show'.
+    The source directory cannot be changed here.
+
+    Examples:
+
+      # Open the menu
+      trs-file-backup config --destination C:\\Backup\\MyApp
+
+      # Print the saved settings only
+      trs-file-backup config show --destination ./backup
+
+    Note:
+      Stop a running 'watch' and wait for a running 'run' to finish first: both write their own
+      settings back to the state file and would overwrite your changes.
+      Saved changes take effect at the next start of 'run' or 'watch'.
+    """
+    if ctx.invoked_subcommand is not None:
+        return
+    target = _required_destination(destination)
+    state = _load_saved_state(target)
+    if not _stdin_is_terminal():
+        saved = SettingsDraft.of(state)
+        _print_settings(state.source_path, saved, saved)
+        return
+    _run_menu(target, state)
+
+
+@config_app.command("show")
+def config_show(
+    ctx: typer.Context,
+    destination: Path | None = typer.Option(  # noqa: B008
+        None,
+        "--destination",
+        help=DESTINATION_HELP,
+        file_okay=False,
+        dir_okay=True,
+        resolve_path=True,
+    ),
+) -> None:
+    """Print the saved settings without asking anything.
+
+    Examples:
+
+      # Print the saved settings
+      trs-file-backup config show --destination C:\\Backup\\MyApp
+    """
+    if destination is None and ctx.parent is not None:
+        destination = ctx.parent.params.get("destination")
+    state = _load_saved_state(_required_destination(destination))
+    saved = SettingsDraft.of(state)
+    _print_settings(state.source_path, saved, saved)
 
 
 if __name__ == "__main__":
