@@ -1,3 +1,4 @@
-Script to backup changed filed in a given Folder.
+Script to back up changed files in a given folder.
 
-See the [Getting Started](getting_started/index.md) section to learn how to install and use the SPL Build Extensions.
+Install it with `pip install trs-file-backup`.
+See the [Features](features/index.md) section to learn what trs-file-backup does and how to use its commands.
