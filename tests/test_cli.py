@@ -4,6 +4,7 @@ import importlib
 import importlib.metadata
 import json
 import re
+import sys
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -725,6 +726,545 @@ class TestSavedSettings:
         assert "[default: (saved value, else 2)]" in debounce_row
 
 
+def _state_bytes(dest: Path) -> bytes:
+    return (dest / ".backup_state.json").read_bytes()
+
+
+def _initialized(tmp_path: Path, *options: str) -> tuple[Path, Path]:
+    """Create a source directory and run init into tmp_path/dest with the given options."""
+    source = tmp_path / "source"
+    source.mkdir()
+    dest = tmp_path / "dest"
+    _init(source, dest, *options)
+    return source, dest
+
+
+class TestConfigShow:
+    """config show prints the saved settings without prompting (spec FR-7)."""
+
+    def test_show_prints_source_debounce_and_numbered_user_patterns(self, tmp_path: Path) -> None:
+        from trs_file_backup.main import app
+
+        source, dest = _initialized(tmp_path, "--exclude", "*.log", "--exclude", "temp_*", "--debounce", "5")
+        state_before = _state_bytes(dest)
+
+        result = runner.invoke(app, ["config", "show", "--destination", str(dest)])
+
+        assert result.exit_code == 0, result.output
+        assert str(source) in result.output
+        assert "(read-only)" in result.output
+        assert "Debounce:  5 s" in result.output
+        assert "1) *.log" in result.output
+        assert "2) temp_*" in result.output
+        assert ".backup_state.json" not in result.output
+        assert "Choose" not in result.output
+        assert _state_bytes(dest) == state_before
+        result.output.encode("ascii")
+
+    def test_show_without_user_patterns_prints_none(self, tmp_path: Path) -> None:
+        from trs_file_backup.main import app
+
+        _, dest = _initialized(tmp_path)
+
+        result = runner.invoke(app, ["config", "show", "--destination", str(dest)])
+
+        assert result.exit_code == 0, result.output
+        assert "Excluded:  (none)" in result.output
+        assert "1)" not in result.output
+
+    def test_show_prints_brackets_in_patterns_literally(self, tmp_path: Path) -> None:
+        from trs_file_backup.main import app
+
+        _, dest = _initialized(tmp_path, "--exclude", "[abc]*.txt")
+
+        result = runner.invoke(app, ["config", "show", "--destination", str(dest)])
+
+        assert result.exit_code == 0, result.output
+        assert "1) [abc]*.txt" in result.output
+
+    @pytest.mark.parametrize(
+        "saved_patterns",
+        [[".backup_state.json", "*.log", ".backup_state.json", "*.log"], ["*.log"]],
+        ids=["state-pattern-twice", "state-pattern-missing"],
+    )
+    def test_show_handles_state_written_by_older_versions(self, tmp_path: Path, saved_patterns: list[str]) -> None:
+        from trs_file_backup.main import app
+        from trs_file_backup.state import StateManager
+
+        source = tmp_path / "source"
+        source.mkdir()
+        dest = tmp_path / "dest"
+        StateManager(source, dest, 2, saved_patterns, {}).save()
+
+        result = runner.invoke(app, ["config", "show", "--destination", str(dest)])
+
+        assert result.exit_code == 0, result.output
+        assert "1) *.log" in result.output
+        assert "2)" not in result.output
+
+    @pytest.mark.parametrize("command", [["config", "show"], ["config"]], ids=["show", "menu"])
+    def test_without_state_file_says_run_init_first_and_creates_nothing(self, mocker: MockFixture, tmp_path: Path, command: list[str]) -> None:
+        from trs_file_backup.main import app
+
+        mocker.patch("trs_file_backup.main._stdin_is_terminal", return_value=True)
+        dest = tmp_path / "dest"
+
+        result = runner.invoke(app, [*command, "--destination", str(dest)], input="q\n")
+
+        assert result.exit_code == 1
+        assert "Run 'trs-file-backup init' first." in result.output
+        assert "Choose" not in result.output
+        assert not dest.exists()
+
+    def test_unreadable_state_file_is_an_error(self, tmp_path: Path) -> None:
+        from trs_file_backup.main import app
+
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        (dest / ".backup_state.json").write_text("{not json", encoding="utf-8")
+
+        result = runner.invoke(app, ["config", "show", "--destination", str(dest)])
+
+        assert result.exit_code == 1
+        assert "Error:" in result.output
+
+    def test_config_without_terminal_behaves_like_show(self, tmp_path: Path) -> None:
+        from trs_file_backup.main import app
+
+        _, dest = _initialized(tmp_path, "--exclude", "*.log")
+        state_before = _state_bytes(dest)
+
+        result = runner.invoke(app, ["config", "--destination", str(dest)], input="4\ns\n")
+
+        assert result.exit_code == 0, result.output
+        assert "1) *.log" in result.output
+        assert "Choose" not in result.output
+        assert _state_bytes(dest) == state_before
+
+    def test_destination_is_accepted_before_show(self, tmp_path: Path) -> None:
+        from trs_file_backup.main import app
+
+        _, dest = _initialized(tmp_path, "--exclude", "*.log")
+
+        result = runner.invoke(app, ["config", "--destination", str(dest), "show"])
+
+        assert result.exit_code == 0, result.output
+        assert "1) *.log" in result.output
+
+    @pytest.mark.parametrize("command", [["config"], ["config", "show"]], ids=["menu", "show"])
+    def test_missing_destination_is_a_usage_error(self, command: list[str]) -> None:
+        from trs_file_backup.main import app
+
+        result = runner.invoke(app, command)
+
+        assert result.exit_code == 2
+        assert "--destination" in click.unstyle(result.output)
+
+    def test_config_help_names_show_and_says_to_stop_watch_and_run(self) -> None:
+        from trs_file_backup.main import app
+
+        result = runner.invoke(app, ["config", "--help"], env={"COLUMNS": "400"})
+
+        assert result.exit_code == 0
+        help_text = _help_output(result)
+        assert re.search(r"show\s+print the saved settings without asking anything", help_text)
+        assert "--destination" in help_text
+        assert "stop a running 'watch' and wait for a running 'run' to finish first" in help_text
+
+    def test_main_help_lists_config(self) -> None:
+        from trs_file_backup.main import app
+
+        result = runner.invoke(app, ["--help"])
+
+        assert result.exit_code == 0
+        assert "config" in _help_output(result)
+
+
+class TestConfigMenu:
+    """config opens a menu to change the saved settings when stdin is a terminal (spec FR-7)."""
+
+    @staticmethod
+    def _menu(mocker: MockFixture, dest: Path, keys: str) -> ClickResult:
+        from trs_file_backup.main import app
+
+        mocker.patch("trs_file_backup.main._stdin_is_terminal", return_value=True)
+        return runner.invoke(app, ["config", "--destination", str(dest)], input=keys)
+
+    def test_menu_shows_settings_and_actions(self, mocker: MockFixture, tmp_path: Path) -> None:
+        source, dest = _initialized(tmp_path, "--exclude", "*.log", "--debounce", "5")
+
+        result = self._menu(mocker, dest, "q\n")
+
+        assert result.exit_code == 0, result.output
+        assert str(source) in result.output
+        assert "1) *.log" in result.output
+        for label in ("[1] change debounce", "[2] add pattern", "[3] remove pattern", "[4] clear patterns", "[s] save and quit", "[q] quit without saving"):
+            assert label in result.output
+        assert "stop" in result.output.lower()
+        result.output.encode("ascii")
+
+    def test_change_debounce_to_zero_and_save(self, mocker: MockFixture, tmp_path: Path) -> None:
+        _, dest = _initialized(tmp_path, "--exclude", "*.log", "--debounce", "5")
+
+        result = self._menu(mocker, dest, "1\n0\ns\n")
+
+        assert result.exit_code == 0, result.output
+        assert "Debounce:  0 s   (changed)" in result.output
+        assert _saved_settings(dest) == ([".backup_state.json", "*.log"], 0)
+        result.output.encode("ascii")
+
+    def test_save_writes_a_session_block_to_the_log(self, mocker: MockFixture, tmp_path: Path) -> None:
+        _, dest = _initialized(tmp_path, "--exclude", "*.log", "--exclude", "temp_*", "--debounce", "5")
+
+        result = self._menu(mocker, dest, "1\n0\n3\n2\n2\n*.tmp\ns\n")
+
+        assert result.exit_code == 0, result.output
+        session = _last_session_header(dest)
+        assert "Command: config\n" in session
+        assert "Exclusion patterns: .backup_state.json, *.log, *.tmp\n" in session
+        assert "Debounce delay: 0 seconds\n" in session
+        assert "Settings changed: debounce delay 5 -> 0 seconds; added pattern *.tmp; removed pattern temp_*\n" in session
+        assert "Session Ended" in session
+
+    def test_save_without_changes_logs_that_nothing_changed(self, mocker: MockFixture, tmp_path: Path) -> None:
+        _, dest = _initialized(tmp_path, "--exclude", "*.log")
+
+        result = self._menu(mocker, dest, "s\n")
+
+        assert result.exit_code == 0, result.output
+        assert "Settings saved without changes\n" in _last_session_header(dest)
+
+    @pytest.mark.parametrize(("command", "keys"), [(["config"], "2\n*.tmp\nq\ny\n"), (["config", "show"], "")], ids=["quit", "show"])
+    def test_quit_and_show_write_nothing_to_the_log(self, mocker: MockFixture, tmp_path: Path, command: list[str], keys: str) -> None:
+        from trs_file_backup.main import app
+
+        _, dest = _initialized(tmp_path, "--exclude", "*.log")
+        log_before = (dest / "backup.log").read_bytes()
+        mocker.patch("trs_file_backup.main._stdin_is_terminal", return_value=True)
+
+        result = runner.invoke(app, [*command, "--destination", str(dest)], input=keys)
+
+        assert result.exit_code == 0, result.output
+        assert (dest / "backup.log").read_bytes() == log_before
+
+    def test_negative_debounce_is_rejected_and_asked_again(self, mocker: MockFixture, tmp_path: Path) -> None:
+        _, dest = _initialized(tmp_path, "--debounce", "5")
+
+        result = self._menu(mocker, dest, "1\n-3\n7\ns\n")
+
+        assert result.exit_code == 0, result.output
+        assert "0 or more" in result.output
+        assert _saved_settings(dest)[1] == 7
+
+    def test_add_pattern_marks_it_new_and_saves_it(self, mocker: MockFixture, tmp_path: Path) -> None:
+        _, dest = _initialized(tmp_path, "--exclude", "*.log")
+
+        result = self._menu(mocker, dest, "2\n*.tmp\ns\n")
+
+        assert result.exit_code == 0, result.output
+        assert "2) *.tmp   (new)" in result.output
+        assert _saved_settings(dest)[0] == [".backup_state.json", "*.log", "*.tmp"]
+
+    @pytest.mark.parametrize(("pattern", "message"), [("*.log", "already"), (".backup_state.json", "always"), ("", "no pattern")])
+    def test_add_duplicate_state_or_empty_pattern_leaves_list_unchanged(self, mocker: MockFixture, tmp_path: Path, pattern: str, message: str) -> None:
+        _, dest = _initialized(tmp_path, "--exclude", "*.log")
+
+        result = self._menu(mocker, dest, f"2\n{pattern}\ns\n")
+
+        assert result.exit_code == 0, result.output
+        assert message in result.output.lower()
+        assert _saved_settings(dest)[0] == [".backup_state.json", "*.log"]
+
+    def test_remove_pattern_by_number(self, mocker: MockFixture, tmp_path: Path) -> None:
+        _, dest = _initialized(tmp_path, "--exclude", "*.log", "--exclude", "temp_*")
+
+        result = self._menu(mocker, dest, "3\n1\ns\n")
+
+        assert result.exit_code == 0, result.output
+        assert "Removed:   *.log" in result.output
+        assert _saved_settings(dest)[0] == [".backup_state.json", "temp_*"]
+
+    @pytest.mark.parametrize("number", ["0", "3", "-1"])
+    def test_remove_with_invalid_number_leaves_list_unchanged(self, mocker: MockFixture, tmp_path: Path, number: str) -> None:
+        _, dest = _initialized(tmp_path, "--exclude", "*.log", "--exclude", "temp_*")
+
+        result = self._menu(mocker, dest, f"3\n{number}\ns\n")
+
+        assert result.exit_code == 0, result.output
+        assert f"no pattern with number {number}" in result.output.lower()
+        assert _saved_settings(dest)[0] == [".backup_state.json", "*.log", "temp_*"]
+
+    def test_remove_without_patterns_says_so(self, mocker: MockFixture, tmp_path: Path) -> None:
+        _, dest = _initialized(tmp_path)
+
+        result = self._menu(mocker, dest, "3\nq\n")
+
+        assert result.exit_code == 0, result.output
+        assert "no patterns to remove" in result.output.lower()
+
+    def test_clear_keeps_state_file_pattern(self, mocker: MockFixture, tmp_path: Path) -> None:
+        _, dest = _initialized(tmp_path, "--exclude", "*.log", "--exclude", "temp_*")
+
+        result = self._menu(mocker, dest, "4\ns\n")
+
+        assert result.exit_code == 0, result.output
+        assert "Excluded:  (none)" in result.output
+        assert _saved_settings(dest)[0] == [".backup_state.json"]
+
+    def test_quit_with_unsaved_changes_asks_and_writes_nothing(self, mocker: MockFixture, tmp_path: Path) -> None:
+        from trs_file_backup.state import StateManager
+
+        _, dest = _initialized(tmp_path, "--exclude", "*.log")
+        state_before = _state_bytes(dest)
+        save_spy = mocker.spy(StateManager, "save")
+
+        result = self._menu(mocker, dest, "2\n*.tmp\nq\nn\nq\ny\n")
+
+        assert result.exit_code == 0, result.output
+        assert result.output.count("Discard the unsaved changes?") == 2
+        assert save_spy.call_count == 0
+        assert _state_bytes(dest) == state_before
+
+    def test_quit_without_changes_does_not_ask(self, mocker: MockFixture, tmp_path: Path) -> None:
+        _, dest = _initialized(tmp_path, "--exclude", "*.log")
+        state_before = _state_bytes(dest)
+
+        result = self._menu(mocker, dest, "q\n")
+
+        assert result.exit_code == 0, result.output
+        assert "Discard" not in result.output
+        assert _state_bytes(dest) == state_before
+
+    @pytest.mark.parametrize(("keys", "exit_code"), [("2\n*.tmp\n", 1), ("", 0)], ids=["unsaved-changes", "no-changes"])
+    def test_end_of_input_saves_nothing(self, mocker: MockFixture, tmp_path: Path, keys: str, exit_code: int) -> None:
+        _, dest = _initialized(tmp_path, "--exclude", "*.log")
+        state_before = _state_bytes(dest)
+
+        result = self._menu(mocker, dest, keys)
+
+        assert result.exit_code == exit_code, result.output
+        assert "nothing saved" in result.output.lower()
+        assert _state_bytes(dest) == state_before
+
+    def test_save_goes_through_state_manager_and_keeps_source_and_files(self, mocker: MockFixture, tmp_path: Path) -> None:
+        from trs_file_backup.state import StateManager
+
+        source = tmp_path / "source"
+        source.mkdir()
+        dest = tmp_path / "dest"
+        StateManager(source, dest, 5, [".backup_state.json", "*.log"], {"a.txt": 1.5}).save()
+        save_spy = mocker.spy(StateManager, "save")
+
+        result = self._menu(mocker, dest, "1\n3\ns\n")
+
+        assert result.exit_code == 0, result.output
+        assert save_spy.call_count == 1
+        data = json.loads((dest / ".backup_state.json").read_text(encoding="utf-8"))
+        assert data["source_path"] == str(source)
+        assert data["files"] == {"a.txt": 1.5}
+        assert data["debounce_seconds"] == 3
+        assert not (dest / ".backup_state.json.tmp").exists()
+
+    def test_failed_save_is_an_error_and_keeps_the_state_file(self, mocker: MockFixture, tmp_path: Path) -> None:
+        from trs_file_backup.state import StateManager
+
+        _, dest = _initialized(tmp_path, "--exclude", "*.log")
+        state_before = _state_bytes(dest)
+        mocker.patch.object(StateManager, "save", side_effect=PermissionError("locked"))
+
+        result = self._menu(mocker, dest, "4\ns\n")
+
+        assert result.exit_code == 1
+        assert "Error: cannot save" in result.output
+        assert _state_bytes(dest) == state_before
+
+    def test_unwritable_log_after_save_says_the_settings_were_saved(self, mocker: MockFixture, tmp_path: Path) -> None:
+        _, dest = _initialized(tmp_path, "--exclude", "*.log", "--debounce", "5")
+        mocker.patch("trs_file_backup.main.BackupLogger", side_effect=PermissionError("backup.log is locked"))
+
+        result = self._menu(mocker, dest, "1\n0\ns\n")
+
+        assert result.exit_code == 1
+        assert "Error:" in result.output
+        assert "settings were saved" in result.output.lower()
+        assert "backup.log" in result.output
+        assert "Traceback" not in result.output
+        assert _saved_settings(dest)[1] == 0
+
+    def test_save_keeps_tracked_files_written_while_the_menu_was_open(self, mocker: MockFixture, tmp_path: Path) -> None:
+        from rich.prompt import IntPrompt
+
+        from trs_file_backup.state import StateManager
+
+        source = tmp_path / "source"
+        source.mkdir()
+        dest = tmp_path / "dest"
+        StateManager(source, dest, 5, [".backup_state.json"], {}).save()
+
+        def backup_happens_meanwhile(*args: object, **kwargs: object) -> int:
+            StateManager(source, dest, 5, [".backup_state.json"], {"a.txt": 2.5}).save()
+            return 3
+
+        mocker.patch.object(IntPrompt, "ask", side_effect=backup_happens_meanwhile)
+
+        result = self._menu(mocker, dest, "1\ns\n")
+
+        assert result.exit_code == 0, result.output
+        data = json.loads((dest / ".backup_state.json").read_text(encoding="utf-8"))
+        assert data["files"] == {"a.txt": 2.5}
+        assert data["debounce_seconds"] == 3
+
+    def test_run_uses_settings_saved_by_config(self, mocker: MockFixture, tmp_path: Path) -> None:
+        from trs_file_backup.main import app
+
+        source, dest = _initialized(tmp_path, "--exclude", "*.log", "--debounce", "5")
+        self._menu(mocker, dest, "1\n0\n4\n2\n*.tmp\ns\n")
+        (source / "a.log").write_text("a")
+        (source / "b.tmp").write_text("b")
+        mocker.patch("time.sleep")
+
+        result = runner.invoke(app, ["run", "--source", str(source), "--destination", str(dest)])
+
+        assert result.exit_code == 0, result.output
+        assert _backed_up(dest, "a", ".log")
+        assert not _backed_up(dest, "b", ".tmp")
+        assert "Debounce delay: 0 seconds" in _last_session_header(dest)
+
+
+class TestDestinationIsTheTruth:
+    """The folder given with --destination holds the state file that is read and written (spec AC-3.11)."""
+
+    @staticmethod
+    def _copied_backup(tmp_path: Path) -> tuple[Path, Path, Path, bytes]:
+        """Init into dest, copy dest to dest2, and add a file to back up; return source, dest, dest2 and dest's state bytes."""
+        import shutil
+
+        source, dest = _initialized(tmp_path, "--exclude", "*.log", "--debounce", "5")
+        dest2 = tmp_path / "dest2"
+        shutil.copytree(dest, dest2)
+        (source / "a.txt").write_text("a")
+        return source, dest, dest2, _state_bytes(dest)
+
+    @staticmethod
+    def _stored_destination(dest: Path) -> str:
+        return json.loads((dest / ".backup_state.json").read_text(encoding="utf-8"))["destination_path"]
+
+    def test_run_on_a_copied_folder_changes_only_the_copy(self, mocker: MockFixture, tmp_path: Path) -> None:
+        from trs_file_backup.main import app
+
+        source, dest, dest2, dest_state = self._copied_backup(tmp_path)
+        mocker.patch("time.sleep")
+
+        result = runner.invoke(app, ["run", "--source", str(source), "--destination", str(dest2), "--debounce", "0"])
+
+        assert result.exit_code == 0, result.output
+        assert _backed_up(dest2, "a", ".txt")
+        assert not _backed_up(dest, "a", ".txt")
+        assert _state_bytes(dest) == dest_state
+        assert self._stored_destination(dest2) == str(dest2)
+        assert _saved_settings(dest2)[1] == 0
+
+    def test_watch_on_a_copied_folder_changes_only_the_copy(self, mocker: MockFixture, tmp_path: Path) -> None:
+        source, dest, dest2, dest_state = self._copied_backup(tmp_path)
+
+        TestSavedSettings._invoke_watch(mocker, source, dest2, "--debounce", "0")
+
+        assert _state_bytes(dest) == dest_state
+        assert self._stored_destination(dest2) == str(dest2)
+        assert _saved_settings(dest2)[1] == 0
+
+    def test_config_save_on_a_copied_folder_changes_only_the_copy(self, mocker: MockFixture, tmp_path: Path) -> None:
+        from trs_file_backup.main import app
+
+        _, dest, dest2, dest_state = self._copied_backup(tmp_path)
+        dest_log = (dest / "backup.log").read_bytes()
+        mocker.patch("trs_file_backup.main._stdin_is_terminal", return_value=True)
+
+        result = runner.invoke(app, ["config", "--destination", str(dest2)], input="1\n0\ns\n")
+
+        assert result.exit_code == 0, result.output
+        assert str(dest2 / ".backup_state.json") in result.output
+        assert _state_bytes(dest) == dest_state
+        assert (dest / "backup.log").read_bytes() == dest_log
+        assert self._stored_destination(dest2) == str(dest2)
+        assert _saved_settings(dest2)[1] == 0
+
+
+class TestSourceMustMatchTheStateFile:
+    """run and watch refuse a --source other than the one saved in the state file (spec AC-3.12)."""
+
+    @staticmethod
+    def _other_source(tmp_path: Path) -> tuple[Path, Path, Path, bytes, bytes]:
+        """Init source into dest and make a second source with a file; return source, other, dest and dest's state and log bytes."""
+        source, dest = _initialized(tmp_path)
+        other = tmp_path / "other"
+        other.mkdir()
+        (other / "a.txt").write_text("a")
+        return source, other, dest, _state_bytes(dest), (dest / "backup.log").read_bytes()
+
+    def test_run_with_another_source_aborts_before_doing_anything(self, mocker: MockFixture, tmp_path: Path) -> None:
+        from trs_file_backup.main import app
+
+        source, other, dest, state_before, log_before = self._other_source(tmp_path)
+        mocker.patch("time.sleep")
+
+        result = runner.invoke(app, ["run", "--source", str(other), "--destination", str(dest), "--debounce", "0"])
+
+        assert result.exit_code == 1
+        output = click.unstyle(result.output).replace("\n", "")  # Rich wraps the error line at the console width
+        assert "Error:" in output
+        assert "belongs to" in output
+        assert str(source) in output
+        assert "init" in output
+        assert not _backed_up(dest, "a", ".txt")
+        assert _state_bytes(dest) == state_before
+        assert (dest / "backup.log").read_bytes() == log_before
+
+    def test_watch_with_another_source_aborts_before_doing_anything(self, mocker: MockFixture, tmp_path: Path) -> None:
+        from trs_file_backup.main import app
+
+        _, other, dest, state_before, log_before = self._other_source(tmp_path)
+        observer = mocker.patch("trs_file_backup.main.Observer")
+        mocker.patch("time.sleep", side_effect=KeyboardInterrupt())
+
+        result = runner.invoke(app, ["watch", "--source", str(other), "--destination", str(dest), "--debounce", "0"])
+
+        assert result.exit_code == 1
+        assert "belongs to" in click.unstyle(result.output)
+        observer.assert_not_called()
+        assert _state_bytes(dest) == state_before
+        assert (dest / "backup.log").read_bytes() == log_before
+
+    @pytest.mark.skipif(sys.platform != "win32", reason="paths differ only in case on a case-insensitive file system")
+    def test_run_accepts_the_saved_source_in_other_letter_case(self, mocker: MockFixture, tmp_path: Path) -> None:
+        from trs_file_backup.main import app
+
+        source, dest = _initialized(tmp_path)
+        (source / "a.txt").write_text("a")
+        mocker.patch("time.sleep")
+
+        result = runner.invoke(app, ["run", "--source", str(source).swapcase(), "--destination", str(dest)])
+
+        assert result.exit_code == 0, result.output
+        assert _backed_up(dest, "a", ".txt")
+
+    def test_run_accepts_a_saved_source_written_another_way(self, mocker: MockFixture, tmp_path: Path) -> None:
+        from trs_file_backup.main import app
+        from trs_file_backup.state import StateManager
+
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "a.txt").write_text("a")
+        dest = tmp_path / "dest"
+        StateManager(tmp_path / "x" / ".." / "source", dest, 0, [".backup_state.json"], {}).save()
+        mocker.patch("time.sleep")
+
+        result = runner.invoke(app, ["run", "--source", str(source), "--destination", str(dest)])
+
+        assert result.exit_code == 0, result.output
+        assert _backed_up(dest, "a", ".txt")
+
+
 class TestBackupEventHandler:
     """Test suite for BackupEventHandler."""
 
@@ -1051,6 +1591,18 @@ class TestMainApp:
         assert "source" in _help_output(result)
         assert "destination" in _help_output(result)
         assert "debounce" in _help_output(result)
+
+    @pytest.mark.parametrize("command", [[], ["init"], ["run"], ["watch"], ["config"], ["config", "show"]], ids=["app", "init", "run", "watch", "config", "config-show"])
+    def test_short_help_option_matches_long_one(self, command: list[str]) -> None:
+        """Spec NFR-3: -h works like --help for the main command and every subcommand."""
+        from trs_file_backup.main import app
+
+        short = runner.invoke(app, [*command, "-h"], env={"COLUMNS": "200"})
+        long = runner.invoke(app, [*command, "--help"], env={"COLUMNS": "200"})
+
+        assert short.exit_code == 0, short.output
+        assert short.output == long.output
+        assert "-h" in _help_output(short)
 
     @pytest.mark.parametrize("command", ["init", "run", "watch"])
     def test_exclude_option_shows_pattern_metavar(self, command: str) -> None:
