@@ -81,6 +81,7 @@ class TestInitCommand:
         )
 
         assert result.exit_code == 0
+        assert _saved_settings(dest)[0] == [".backup_state.json", "*.log", "*.tmp"]
 
     def test_init_with_custom_debounce(self, mocker: MockFixture, tmp_path: Path) -> None:
         """Test init command with custom debounce setting."""
