@@ -2,6 +2,24 @@
 
 <!-- version list -->
 
+## v3.1.2 (2026-11-17)
+
+### Bug Fixes
+
+- Remove the temporary state file when saving fails
+  ([`395f947`](https://github.com/TheRedSwabian/trs-file-backup/commit/395f9470f831f329070ef35d584029c95fa9916a))
+
+### Documentation
+
+- Remove the template leftovers from the Sphinx setup
+  ([`488da37`](https://github.com/TheRedSwabian/trs-file-backup/commit/488da37f4a5e648066fd8c475b0f5054f6ef8347))
+
+### Testing
+
+- Check that init stores every --exclude pattern
+  ([`b4a58f1`](https://github.com/TheRedSwabian/trs-file-backup/commit/b4a58f19630f1ea15c5ba8efdae62ce5788548a8))
+
+
 ## v3.1.1 (2026-11-17)
 
 ### Bug Fixes
