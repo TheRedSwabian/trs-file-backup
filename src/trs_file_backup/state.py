@@ -1,5 +1,6 @@
 """State management for backup operations."""
 
+import contextlib
 import json
 import time
 from pathlib import Path
@@ -103,15 +104,21 @@ class StateManager:
 
         # Rename temp file to actual file (atomic on most filesystems)
         # Use os.replace for cross-platform atomic replacement
-        for attempt in range(1, REPLACE_ATTEMPTS + 1):
-            try:
-                os.replace(str(temp_file), str(self.state_file_path))
-                return
-            except PermissionError:
-                # On Windows an antivirus or the indexer may hold the new file for a moment
-                if attempt == REPLACE_ATTEMPTS:
-                    raise
-                time.sleep(REPLACE_RETRY_DELAY_SECONDS)
+        try:
+            for attempt in range(1, REPLACE_ATTEMPTS + 1):
+                try:
+                    os.replace(str(temp_file), str(self.state_file_path))
+                    return
+                except PermissionError:
+                    # On Windows an antivirus or the indexer may hold the new file for a moment
+                    if attempt == REPLACE_ATTEMPTS:
+                        raise
+                    time.sleep(REPLACE_RETRY_DELAY_SECONDS)
+        except OSError:
+            # Do not leave the temp file behind; a failed cleanup must not hide the rename error
+            with contextlib.suppress(OSError):
+                temp_file.unlink(missing_ok=True)
+            raise
 
     def update_file_timestamp(self, filename: str, timestamp: float) -> None:
         """Update or add file timestamp.
