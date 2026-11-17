@@ -10,14 +10,13 @@ from unittest.mock import Mock, patch
 
 import click
 import pytest
-from click.testing import Result as ClickResult
 from pytest_mock import MockFixture
-from typer.testing import CliRunner
+from typer.testing import CliRunner, Result
 
 runner = CliRunner()
 
 
-def _help_output(result: ClickResult) -> str:
+def _help_output(result: Result) -> str:
     """Get CLI output stripped of ANSI escape codes for reliable assertions."""
     return click.unstyle(result.output).lower()
 
@@ -885,7 +884,7 @@ class TestConfigMenu:
     """config opens a menu to change the saved settings when stdin is a terminal (spec FR-7)."""
 
     @staticmethod
-    def _menu(mocker: MockFixture, dest: Path, keys: str) -> ClickResult:
+    def _menu(mocker: MockFixture, dest: Path, keys: str) -> Result:
         from trs_file_backup.main import app
 
         mocker.patch("trs_file_backup.main._stdin_is_terminal", return_value=True)

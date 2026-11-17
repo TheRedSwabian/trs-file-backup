@@ -34,8 +34,13 @@ repos:
       rev: v2.4.3
       hooks:
           - id: codespell
-    - repo: https://github.com/pre-commit/mirrors-mypy
-      rev: v2.4.1
+    - repo: local
       hooks:
+          # Runs in the project venv, so mypy sees the real types of typer, rich, watchdog and py-app-dev
           - id: mypy
-            additional_dependencies: []
+            name: mypy
+            entry: uv run --locked mypy src tests
+            language: system
+            pass_filenames: false
+            require_serial: true
+            files: \.py$|^pyproject\.toml$|^uv\.lock$

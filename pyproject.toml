@@ -26,6 +26,7 @@ dev = [
     "pytest-mock>=3.14",
     "python-semantic-release>=10",
     "pre-commit>=4.0",
+    "mypy>=2.4.1",
 ]
 docs = [
     "myst-parser>=0.16",
