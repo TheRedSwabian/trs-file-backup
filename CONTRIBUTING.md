@@ -138,6 +138,9 @@ Before pushing, run the `pre-commit` checks to format, lint and spell check all 
 uv run pre-commit run --all-files
 ```
 
+The mypy hook runs `uv run --locked mypy src tests` in the project's own environment, so it checks the calls into typer, rich, watchdog and py-app-dev against their real types.
+Its version is pinned in `uv.lock`, with a lower bound in the `dev` group of `pyproject.toml`; there is no second dependency list in `.pre-commit-config.yaml`.
+
 ## Release
 
 This repository uses [semantic release](https://python-semantic-release.readthedocs.io/en/latest/) to automate versioning and changelog generation.
