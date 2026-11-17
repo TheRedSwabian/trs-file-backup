@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v3.1.1 (2026-11-17)
+
+### Bug Fixes
+
+- Keep cli output working on a console that cannot encode it
+  ([`baebbdc`](https://github.com/TheRedSwabian/trs-file-backup/commit/baebbdc594c14ea0db462fcc8eae281824aa2e71))
+
+### Documentation
+
+- Fix the Sphinx build warnings
+  ([`66de499`](https://github.com/TheRedSwabian/trs-file-backup/commit/66de4999fc1774b08966ea38aecba358b6d8f599))
+
+- Repair the garbled General block of the feature spec
+  ([`46a9bcd`](https://github.com/TheRedSwabian/trs-file-backup/commit/46a9bcd332b3688ab1efe0d8aabc67d3aaf973b4))
+
+
 ## v3.1.0 (2026-11-16)
 
 ### Bug Fixes
