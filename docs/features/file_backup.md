@@ -200,6 +200,8 @@ The tool shall be implemented as a Python command-line application with comprehe
 - The tool shall provide a `--help` / `-h` option for the main command and all subcommands
 - Help messages shall include command descriptions, parameter explanations, and usage examples
 - Users shall be able to use the tool without reading external documentation
+- The console output of all commands shall use ASCII markers (`OK`, `ERROR`, `WARNING`, `->`), so it stays readable on any console code page
+- A character in a path that the console encoding cannot show shall be printed as `?`; it shall not end the command, also when the output goes into a pipe or a file
 
 ### NFR-4: Help System
 
@@ -326,9 +328,9 @@ Examples:
 Scanning source directory: C:\Projects\MyApp
 Found 15 modified files
 Backing up files...
-  ✓ main.py → main_2026_01_13__14_30_22.py
-  ✓ readme.md → readme_2026_01_13__14_30_25.md
-  ✓ config.yaml → config_2026_01_13__14_30_26.yaml
+  OK main.py -> main_2026_01_13__14_30_22.py
+  OK readme.md -> readme_2026_01_13__14_30_25.md
+  OK config.yaml -> config_2026_01_13__14_30_26.yaml
   ...
 Successfully backed up 15 files to C:\Backup\MyApp
 Logging to: C:\Backup\MyApp\backup.log
@@ -405,7 +407,7 @@ Note:
 **Command Output:**
 
 ```text
-Initialized backup tracking for C:\Projects\MyApp
+OK Initialized backup tracking for C:\Projects\MyApp
 State file saved to C:\Backup\MyApp\.backup_state.json
 Log file created: C:\Backup\MyApp\backup.log
 Next run will back up all files.

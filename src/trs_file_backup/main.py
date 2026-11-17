@@ -1,11 +1,12 @@
 """Main CLI application for trs-file-backup."""
 
+import io
 import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import Any, NoReturn, TextIO
 
 import typer
 from rich.console import Console
@@ -211,7 +212,7 @@ def init(
         logger.log_session_end()
 
         # Show user message
-        console.print(f"[green]✓[/green] Initialized backup tracking for {source}")
+        console.print(f"[green]OK[/green] Initialized backup tracking for {source}")
         console.print(f"State file saved to {state.state_file_path}")
         console.print(f"Log file created: {destination / 'backup.log'}")
         console.print("Next run will back up all files.")
@@ -344,7 +345,7 @@ def run(
             for file in files_to_backup:
                 timestamp = datetime.now()
                 backup_name = BackupManager.generate_backup_filename(file.name, timestamp)
-                console.print(f"  Would backup: {file.name} → {backup_name}")
+                console.print(f"  Would backup: {file.name} -> {backup_name}")
             logger.log_session_end(0, len(files_to_backup))
             return
 
@@ -367,17 +368,17 @@ def run(
 
                 # Log success
                 logger.log_file_backed_up(file.name, backup_path.name)
-                console.print(f"  [green]✓[/green] {file.name} → {backup_path.name}")
+                console.print(f"  [green]OK[/green] {file.name} -> {backup_path.name}")
                 backed_up_count += 1
 
             except PermissionError:
                 logger.log_error(f"Permission denied: {file.name}")
-                console.print(f"  [red]✗[/red] Permission denied: {file.name}")
+                console.print(f"  [red]ERROR[/red] Permission denied: {file.name}")
                 failed_count += 1
 
             except OSError:
                 logger.log_file_locked(file.name)
-                console.print(f"  [yellow]⚠[/yellow] File locked, skipping: {file.name}")
+                console.print(f"  [yellow]WARNING[/yellow] File locked, skipping: {file.name}")
                 failed_count += 1
 
         # Save updated state
@@ -894,5 +895,25 @@ def config_show(
     _print_settings(state.source_path, saved, saved)
 
 
-if __name__ == "__main__":
+def replace_unencodable(stream: TextIO | None) -> None:
+    """Make a text stream write "?" for a character its encoding cannot show, instead of raising UnicodeEncodeError.
+
+    Only an io.TextIOWrapper can be reconfigured; any other stream, such as None under pythonw or a test runner's buffer, is left as it is.
+    """
+    if isinstance(stream, io.TextIOWrapper):
+        stream.reconfigure(errors="replace")
+
+
+def cli() -> None:
+    """Start the CLI with stdout and stderr protected against characters the console encoding cannot show.
+
+    File and folder names may hold such characters, for example Japanese names on a cp1252 pipe.
+    The protection runs here and not in the Typer callback, because --help and --version run before the callback body.
+    """
+    replace_unencodable(sys.stdout)
+    replace_unencodable(sys.stderr)
     app()
+
+
+if __name__ == "__main__":
+    cli()

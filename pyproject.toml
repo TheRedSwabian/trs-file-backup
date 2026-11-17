@@ -14,8 +14,8 @@ dependencies = [
 ]
 
 [project.scripts]
-bcs = "trs_file_backup.main:app"
-trs-file-backup = "trs_file_backup.main:app"
+bcs = "trs_file_backup.main:cli"
+trs-file-backup = "trs_file_backup.main:cli"
 
 
 
