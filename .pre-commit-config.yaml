@@ -4,10 +4,6 @@ exclude: "CHANGELOG\\.md|\\.all-contributorsrc|\\.vscode/.*|tests/__init__\\.py|
 default_install_hook_types: [pre-commit, commit-msg]
 default_stages: [pre-commit]
 
-ci:
-    autofix_commit_msg: "chore(pre-commit.ci): auto fixes"
-    autoupdate_commit_msg: "chore(pre-commit.ci): pre-commit autoupdate"
-
 repos:
     - repo: https://github.com/commitizen-tools/commitizen
       rev: v4.19.3
