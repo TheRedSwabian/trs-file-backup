@@ -3,17 +3,6 @@
 # For the full list of built-in configuration values, see the documentation:
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 import importlib.metadata
-import os
-import sys
-from pathlib import Path
-
-import mlx.traceability
-
-project_root_path = Path(__file__).parent.parent
-
-for path in ["src", "tests"]:
-    sys.path.insert(0, project_root_path.joinpath(path).as_posix())
-
 
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
@@ -26,13 +15,16 @@ release = importlib.metadata.version("trs-file-backup")
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
-extensions = []
-
-# https://github.com/executablebooks/sphinx-design
-extensions.append("sphinx_design")
-
-# https://myst-parser.readthedocs.io/en/latest/intro.html
-extensions.append("myst_parser")
+extensions = [
+    # https://github.com/executablebooks/sphinx-design
+    "sphinx_design",
+    # https://myst-parser.readthedocs.io/en/latest/intro.html
+    "myst_parser",
+    # copy button for code blocks
+    "sphinx_copybutton",
+    # open external links in a new tab
+    "sphinx_new_tab_link",
+]
 
 myst_enable_extensions = [
     "colon_fence",
@@ -41,53 +33,17 @@ myst_enable_extensions = [
     "html_image",
 ]
 
-# TODO: enable this extension when is is supported by readthedocs
-# draw.io config - @see https://pypi.org/project/sphinxcontrib-drawio/
-# extensions.append("sphinxcontrib.drawio")
-# drawio_default_transparency = True
-
-# mermaid config - @see https://pypi.org/project/sphinxcontrib-mermaid/
-extensions.append("sphinxcontrib.mermaid")
-mermaid_init_js = """mermaid.initialize({
-  theme: 'dark',
-});"""
-
-# Configure extensions for include doc-strings from code
-extensions.extend(
-    [
-        "sphinx.ext.autodoc",
-        "sphinx.ext.autosummary",
-        "sphinx.ext.napoleon",
-        "sphinx.ext.viewcode",
-    ]
-)
-
-# mlx.traceability config - https://pypi.org/project/mlx-traceability/
-extensions.append("mlx.traceability")
-
-# Make relationship like 'validated_by' be shown for each requirement
-traceability_render_relationship_per_item = True
-
-# The suffix of source filenames.
 source_suffix = [
     ".rst",
     ".md",
 ]
 
-templates_path = ["_templates"]
 exclude_patterns = ["build", "Thumbs.db", ".DS_Store"]
-
-# copy button for code block
-extensions.append("sphinx_copybutton")
-
-# open links in new tab
-extensions.append("sphinx_new_tab_link")
 
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
 html_theme = "sphinx_book_theme"
-html_logo = "_static/python-logo-only.svg"
 html_favicon = "_static/empty_favicon.ico"
 html_theme_options = {
     "home_page_in_toc": True,
@@ -100,8 +56,4 @@ html_theme_options = {
     "navigation_with_keys": False,
 }
 html_last_updated_fmt = ""
-html_static_path = [
-    os.path.join(os.path.dirname(mlx.traceability.__file__), "assets"),
-    "_static",
-]
-html_css_files = ["custom.css"]
+html_static_path = ["_static"]
