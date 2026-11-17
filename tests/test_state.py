@@ -75,6 +75,29 @@ class TestStateManager:
 
         assert replace.call_count == 1
 
+    @pytest.mark.parametrize("error", [PermissionError("in use"), FileNotFoundError("gone")])
+    def test_save_removes_the_temp_file_when_the_rename_fails_for_good(self, mocker: MockFixture, tmp_path: Path, error: OSError) -> None:
+        from trs_file_backup.state import StateManager
+
+        mocker.patch("os.replace", side_effect=error)
+        mocker.patch("time.sleep")
+        state = StateManager(tmp_path, tmp_path, 2, [".backup_state.json"], {})
+
+        with pytest.raises(type(error)):
+            state.save()
+
+        assert not (tmp_path / ".backup_state.json.tmp").exists()
+
+    def test_save_keeps_the_rename_error_when_the_temp_file_cannot_be_removed(self, mocker: MockFixture, tmp_path: Path) -> None:
+        from trs_file_backup.state import StateManager
+
+        mocker.patch("os.replace", side_effect=FileNotFoundError("gone"))
+        mocker.patch("pathlib.Path.unlink", side_effect=PermissionError("locked"))
+        state = StateManager(tmp_path, tmp_path, 2, [".backup_state.json"], {})
+
+        with pytest.raises(FileNotFoundError):
+            state.save()
+
     def test_load_takes_destination_from_the_folder_that_holds_the_file(self, tmp_path: Path) -> None:
         """Spec AC-3.11: a copied or moved backup folder is the destination, not the path stored in the file."""
         from trs_file_backup.state import StateManager
