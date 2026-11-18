@@ -60,7 +60,7 @@ class ParsedBackup:
 
 def _reading_at(name: str, start: int) -> ParsedBackup | None:
     """Return the reading of name with the timestamp starting at index start, if it gives name back."""
-    # Imported here: backup imports state, and state will import this module for the rules
+    # Imported here: backup imports state, and state imports this module for the rules
     from trs_file_backup.backup import BackupManager
 
     match = _TIMESTAMP.fullmatch(name, start, start + _TIMESTAMP_LENGTH)
