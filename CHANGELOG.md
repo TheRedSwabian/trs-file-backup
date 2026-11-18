@@ -2,6 +2,21 @@
 
 <!-- version list -->
 
+## v3.1.4 (2026-11-18)
+
+### Bug Fixes
+
+- **run**: Copy without waiting for the debounce delay
+  ([#23](https://github.com/TheRedSwabian/trs-file-backup/pull/23),
+  [`8d9acda`](https://github.com/TheRedSwabian/trs-file-backup/commit/8d9acda8ed27efa149271e57f79c3b8c74531e07))
+
+### Testing
+
+- Drop sleep mocks that run no longer needs
+  ([#23](https://github.com/TheRedSwabian/trs-file-backup/pull/23),
+  [`2064f95`](https://github.com/TheRedSwabian/trs-file-backup/commit/2064f95d8794b3e0daa34a71f9e5cc26b8668f94))
+
+
 ## v3.1.3 (2026-11-18)
 
 ### Bug Fixes
