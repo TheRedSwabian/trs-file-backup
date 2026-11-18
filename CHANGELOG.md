@@ -2,6 +2,24 @@
 
 <!-- version list -->
 
+## v4.0.0 (2026-11-18)
+
+### Bug Fixes
+
+- **cli**: Remove the legacy bcs command
+  ([#26](https://github.com/TheRedSwabian/trs-file-backup/pull/26),
+  [`813b482`](https://github.com/TheRedSwabian/trs-file-backup/commit/813b482a8452f4e3562bb48a9efeab1633b404e8))
+
+### Documentation
+
+- Record same-second backup name collision as known limitation
+  ([`8948ad3`](https://github.com/TheRedSwabian/trs-file-backup/commit/8948ad3d95a3260f4a9c71321b8048ec627595c6))
+
+### Breaking Changes
+
+- **cli**: The package no longer installs the `bcs` command; call `trs-file-backup` instead.
+
+
 ## v3.1.5 (2026-11-18)
 
 ### Bug Fixes
