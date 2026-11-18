@@ -5,7 +5,7 @@ import os
 import sys
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import NoReturn, TextIO
@@ -21,7 +21,7 @@ from trs_file_backup import __version__
 from trs_file_backup.backup import BackupErrorKind, BackupManager, backup_error_reason, classify_backup_error
 from trs_file_backup.logger import BackupLogger
 from trs_file_backup.patterns import pattern_problem
-from trs_file_backup.retention import NO_LIMIT, RULE_FIELDS, RetentionRules
+from trs_file_backup.retention import NO_LIMIT, RULE_FIELDS, RetentionRules, is_valid_rule_value
 from trs_file_backup.state import InvalidRetentionRuleError, StateManager
 
 app = typer.Typer(
@@ -716,17 +716,14 @@ def watch(
 config_app = typer.Typer(rich_markup_mode="rich")
 app.add_typer(config_app, name="config")
 
-CONFIG_ACTIONS = "  [1] change debounce   [2] add pattern   [3] remove pattern\n  [4] clear patterns    [s] save and quit [q] quit without saving"
+CONFIG_ACTIONS = "  [1] change debounce   [2] add pattern   [3] remove pattern\n  [4] clear patterns    [5] change retention\n  [s] save and quit     [q] quit without saving"
 STOP_WATCH_NOTE = "Stop a running 'watch' and wait for a running 'run' to finish first: both write their own settings back and would overwrite your changes."
 DESTINATION_HELP = "Destination backup directory that holds the state file"
 
 
 @dataclass
 class SettingsDraft:
-    """The settings the config menu shows: the debounce delay, the user patterns without the state file pattern, and the retention rules.
-
-    The menu edits the delay and the patterns; it saves the retention rules as the state file holds them.
-    """
+    """The settings the config menu shows and edits: the debounce delay, the user patterns without the state file pattern, and the retention rules."""
 
     debounce_seconds: int
     patterns: list[str]
@@ -786,30 +783,42 @@ _RULE_TEXTS = {
     "months": ("month", "keep the last backup per month for {count}", "keep the last backup per month forever"),
 }
 RETENTION_LABEL = "  Retention: "
+CHANGED_MARK = "   (changed)"
 
 
-def retention_lines(rules: RetentionRules) -> list[str]:
-    """Return the retention block of the settings: one line per rule that is not 0, or the "off" line (spec AC-7.16)."""
+def retention_lines(rules: RetentionRules, saved: RetentionRules | None = None) -> list[str]:
+    """Return the retention block of the settings: one line per rule that is not 0, or the "off" line (spec AC-7.16).
+
+    With saved, as the menu passes it, a rule that differs from saved gets the mark "(changed)",
+    and a rule that is 0 but not in saved is listed as "<rule> rule: off".
+    """
+    if rules.is_off:
+        mark = CHANGED_MARK if saved is not None and saved != rules else ""
+        return [f"{RETENTION_LABEL}off (no backup is ever deleted){mark}"]
     texts = []
     for name in RULE_FIELDS:
         value = getattr(rules, name)
+        changed = saved is not None and value != getattr(saved, name)
         unit, limited, unlimited = _RULE_TEXTS[name]
         if value == NO_LIMIT:
-            texts.append(unlimited)
+            text = unlimited
         elif value > 0:
             plural = "" if value == 1 else "s"
-            texts.append(limited.format(count=f"{value} {unit}{plural}"))
-    if not texts:
-        return [f"{RETENTION_LABEL}off (no backup is ever deleted)"]
+            text = limited.format(count=f"{value} {unit}{plural}")
+        elif changed:
+            text = f"{name} rule: off"
+        else:
+            continue
+        texts.append(f"{text}{CHANGED_MARK if changed else ''}")
     indent = " " * len(RETENTION_LABEL)
     return [f"{RETENTION_LABEL if number == 0 else indent}{text}" for number, text in enumerate(texts)]
 
 
 def _print_settings(source: Path, draft: SettingsDraft, saved: SettingsDraft) -> None:
-    """Print the settings and mark what differs from the saved ones (spec AC-7.1, AC-7.9); the retention block follows AC-7.16, still without marks."""
+    """Print the settings and mark what differs from the saved ones (spec AC-7.1, AC-7.9, AC-7.16)."""
     _say("Saved settings")
     _say(f"  Source:    {source}   (read-only)")
-    changed = "   (changed)" if draft.debounce_seconds != saved.debounce_seconds else ""
+    changed = CHANGED_MARK if draft.debounce_seconds != saved.debounce_seconds else ""
     _say(f"  Debounce:  {draft.debounce_seconds} s{changed}")
     if not draft.patterns:
         _say("  Excluded:  (none)")
@@ -820,7 +829,7 @@ def _print_settings(source: Path, draft: SettingsDraft, saved: SettingsDraft) ->
     removed = [pattern for pattern in saved.patterns if pattern not in draft.patterns]
     if removed:
         _say(f"  Removed:   {', '.join(removed)}")
-    for line in retention_lines(draft.retention):
+    for line in retention_lines(draft.retention, saved.retention):
         _say(line)
 
 
@@ -830,6 +839,36 @@ def _ask_debounce(current: int) -> int:
         if value >= 0:
             return value
         _say("The debounce delay must be 0 or more seconds.")
+
+
+class _UnwrappedIntPrompt(IntPrompt):
+    """An IntPrompt that the console does not wrap, as _say prints: a long prompt with its default stays on one line (spec AC-7.17)."""
+
+    @classmethod
+    def get_input(cls, console: Console, prompt: str | Text, password: bool, stream: TextIO | None = None) -> str:
+        console.print(prompt, end="", soft_wrap=True)
+        return console.input(password=password, stream=stream)
+
+
+# Per rule: the prompt for its new value (spec AC-7.17)
+_RULE_PROMPTS = {
+    "hours": "Keep every backup younger than how many hours (0 = off, -1 = no limit)",
+    "days": "Keep the last backup per day for how many days (0 = off, -1 = no limit)",
+    "weeks": "Keep the last backup per week for how many weeks (0 = off, -1 = no limit)",
+    "months": "Keep the last backup per month for how many months (0 = off, -1 = no limit)",
+}
+
+
+def _change_retention(draft: SettingsDraft) -> None:
+    """Ask which rule to change, then its new value; Enter keeps the value of the menu (spec AC-7.17)."""
+    _say("  [1] hours   [2] days   [3] weeks   [4] months")
+    name = RULE_FIELDS[int(Prompt.ask("Choose", choices=["1", "2", "3", "4"], console=console)) - 1]
+    while True:
+        value = _UnwrappedIntPrompt.ask(_RULE_PROMPTS[name], default=getattr(draft.retention, name), console=console)
+        if is_valid_rule_value(value):
+            draft.retention = replace(draft.retention, **{name: value})
+            return
+        _say("The value must be 0 or more, or -1 (no limit).")
 
 
 def _add_pattern(draft: SettingsDraft) -> None:
@@ -864,6 +903,10 @@ def _changes(before: SettingsDraft, after: SettingsDraft) -> list[str]:
         changes.append(f"debounce delay {before.debounce_seconds} -> {after.debounce_seconds} seconds")
     changes += [f"added pattern {pattern}" for pattern in after.patterns if pattern not in before.patterns]
     changes += [f"removed pattern {pattern}" for pattern in before.patterns if pattern not in after.patterns]
+    for name in RULE_FIELDS:
+        old, new = getattr(before.retention, name), getattr(after.retention, name)
+        if new != old:
+            changes.append(f"retention.{name} {old} -> {new}")
     return changes
 
 
@@ -876,6 +919,7 @@ def _save(destination: Path, draft: SettingsDraft) -> None:
     on_disk = SettingsDraft.of(state)
     state.excluded_patterns = exclusion_patterns(draft.patterns)
     state.debounce_seconds = draft.debounce_seconds
+    state.retention = draft.retention
     try:
         state.save()
     except OSError as e:
@@ -898,11 +942,11 @@ def _save(destination: Path, draft: SettingsDraft) -> None:
             logger.close()
     except OSError as e:
         _error(f"the settings were saved to {state.state_file_path}, but {destination / 'backup.log'} could not be written: {e}")
-    _say(f"Saved to {state.state_file_path}. The changes take effect at the next start of 'run' or 'watch'.")
+    _say(f"Saved to {state.state_file_path}. The changes take effect at the next start of 'run', 'watch' or 'cleanup'.")
 
 
 def _run_menu(destination: Path, state: StateManager) -> None:
-    """Let the user edit a draft of the settings; write it only on save (spec AC-7.3 to AC-7.11)."""
+    """Let the user edit a draft of the settings; write it only on save (spec AC-7.3 to AC-7.11, AC-7.17)."""
     saved = SettingsDraft.of(state)
     draft = SettingsDraft(saved.debounce_seconds, list(saved.patterns), saved.retention)
     _say(STOP_WATCH_NOTE)
@@ -914,7 +958,7 @@ def _run_menu(destination: Path, state: StateManager) -> None:
                 _say("Unsaved changes: choose s to save them.")
             _say("")
             _say(CONFIG_ACTIONS)
-            match Prompt.ask("Choose", choices=["1", "2", "3", "4", "s", "q"], console=console):
+            match Prompt.ask("Choose", choices=["1", "2", "3", "4", "5", "s", "q"], console=console):
                 case "1":
                     draft.debounce_seconds = _ask_debounce(draft.debounce_seconds)
                 case "2":
@@ -923,6 +967,8 @@ def _run_menu(destination: Path, state: StateManager) -> None:
                     _remove_pattern(draft)
                 case "4":
                     draft.patterns.clear()
+                case "5":
+                    _change_retention(draft)
                 case "s":
                     _save(destination, draft)
                     return
@@ -951,8 +997,9 @@ def config(
 ) -> None:
     """Show and edit the saved settings (debounce delay, exclusion patterns and retention rules).
 
-    Without a subcommand, this opens a menu to change the debounce delay and to add,
-    remove or clear exclusion patterns. Nothing is written before you choose save.
+    Without a subcommand, this opens a menu to change the debounce delay, to add,
+    remove or clear exclusion patterns and to change the retention rules.
+    Nothing is written before you choose save.
     When input does not come from a terminal, it prints the settings like 'config show'.
     The source directory cannot be changed here.
 
@@ -967,7 +1014,7 @@ def config(
     Note:
       Stop a running 'watch' and wait for a running 'run' to finish first: both write their own
       settings back to the state file and would overwrite your changes.
-      Saved changes take effect at the next start of 'run' or 'watch'.
+      Saved changes take effect at the next start of 'run', 'watch' or 'cleanup'.
     """
     if ctx.invoked_subcommand is not None:
         return

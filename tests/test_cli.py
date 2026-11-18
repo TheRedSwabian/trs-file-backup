@@ -941,6 +941,16 @@ class TestConfigShow:
         assert "--destination" in help_text
         assert "stop a running 'watch' and wait for a running 'run' to finish first" in help_text
 
+    def test_config_help_names_the_retention_rules_in_the_menu_and_cleanup(self) -> None:
+        from trs_file_backup.main import app
+
+        result = runner.invoke(app, ["config", "--help"], env={"COLUMNS": "400"})
+
+        assert result.exit_code == 0
+        help_text = " ".join(_help_output(result).split())
+        assert "add, remove or clear exclusion patterns and to change the retention rules." in help_text
+        assert "saved changes take effect at the next start of 'run', 'watch' or 'cleanup'." in help_text
+
     def test_main_help_lists_config(self) -> None:
         from trs_file_backup.main import app
 
@@ -968,8 +978,12 @@ class TestConfigMenu:
         assert result.exit_code == 0, result.output
         assert str(source) in result.output
         assert "1) *.log" in result.output
-        for label in ("[1] change debounce", "[2] add pattern", "[3] remove pattern", "[4] clear patterns", "[s] save and quit", "[q] quit without saving"):
-            assert label in result.output
+        assert (
+            "  [1] change debounce   [2] add pattern   [3] remove pattern\n"
+            "  [4] clear patterns    [5] change retention\n"
+            "  [s] save and quit     [q] quit without saving\n"
+            "Choose [1/2/3/4/5/s/q]: "
+        ) in result.output
         assert "stop" in result.output.lower()
         result.output.encode("ascii")
 
@@ -1429,6 +1443,186 @@ class TestRetentionRulesInSettings:
         options = [option for param in typer.main.get_group(app).commands[command].params for option in param.opts]
 
         assert not [option for option in options if any(word in option for word in ("retention", "hours", "days", "weeks", "months", "keep"))]
+
+
+class TestConfigMenuRetention:
+    """The config menu changes the retention rules (spec AC-7.9 to AC-7.13, AC-7.16, AC-7.17)."""
+
+    @staticmethod
+    def _menu_with_rules(mocker: MockFixture, tmp_path: Path, keys: str, rules: dict[str, int] = EXAMPLE_RULES, *options: str) -> tuple[Result, Path]:
+        _, dest = _initialized(tmp_path, *options)
+        _store_retention(dest, rules)
+        return TestConfigMenu._menu(mocker, dest, keys), dest
+
+    def test_change_a_rule_asks_with_the_spec_texts_and_marks_it(self, mocker: MockFixture, tmp_path: Path) -> None:
+        result, _ = self._menu_with_rules(mocker, tmp_path, "5\n2\n9\nq\ny\n")
+
+        assert result.exit_code == 0, result.output
+        assert (
+            "Choose [1/2/3/4/5/s/q]: "
+            "  [1] hours   [2] days   [3] weeks   [4] months\n"
+            "Choose [1/2/3/4]: "
+            "Keep the last backup per day for how many days (0 = off, -1 = no limit) (7): "
+        ) in result.output
+        assert (
+            "  Retention: keep all backups of the last 24 hours\n"
+            "             keep the last backup per day for 9 days   (changed)\n"
+            "             keep the last backup per week for 4 weeks\n"
+            "             keep the last backup per month forever\n"
+            "Unsaved changes: choose s to save them.\n"
+        ) in result.output
+        result.output.encode("ascii")
+
+    @pytest.mark.parametrize(
+        ("choice", "prompt"),
+        [
+            ("1", "Keep every backup younger than how many hours (0 = off, -1 = no limit) (24): "),
+            ("2", "Keep the last backup per day for how many days (0 = off, -1 = no limit) (7): "),
+            ("3", "Keep the last backup per week for how many weeks (0 = off, -1 = no limit) (4): "),
+            ("4", "Keep the last backup per month for how many months (0 = off, -1 = no limit) (-1): "),
+        ],
+        ids=["hours", "days", "weeks", "months"],
+    )
+    def test_each_rule_has_its_prompt_on_one_line(self, mocker: MockFixture, tmp_path: Path, choice: str, prompt: str) -> None:
+        result, _ = self._menu_with_rules(mocker, tmp_path, f"5\n{choice}\n\nq\n")
+
+        assert result.exit_code == 0, result.output
+        assert f"Choose [1/2/3/4]: {prompt}" in result.output
+
+    def test_enter_keeps_the_value_and_marks_nothing(self, mocker: MockFixture, tmp_path: Path) -> None:
+        result, dest = self._menu_with_rules(mocker, tmp_path, "5\n2\n\nq\n")
+
+        assert result.exit_code == 0, result.output
+        assert "for how many days (0 = off, -1 = no limit) (7): " in result.output
+        assert "(changed)" not in result.output
+        assert "Discard" not in result.output
+        assert _saved_retention(dest) == EXAMPLE_RULES
+
+    def test_the_default_is_the_value_of_the_menu(self, mocker: MockFixture, tmp_path: Path) -> None:
+        result, _ = self._menu_with_rules(mocker, tmp_path, "5\n2\n9\n5\n2\n\nq\ny\n")
+
+        assert result.exit_code == 0, result.output
+        assert "for how many days (0 = off, -1 = no limit) (9): " in result.output
+
+    def test_a_rule_set_back_to_its_saved_value_loses_the_mark(self, mocker: MockFixture, tmp_path: Path) -> None:
+        result, _ = self._menu_with_rules(mocker, tmp_path, "5\n2\n9\n5\n2\n7\nq\n")
+
+        assert result.exit_code == 0, result.output
+        last_list = result.output.rsplit("Saved settings\n", 1)[1]
+        assert "keep the last backup per day for 7 days\n" in last_list
+        assert "(changed)" not in last_list
+        assert "Discard" not in result.output
+
+    def test_invalid_choices_and_values_are_asked_again(self, mocker: MockFixture, tmp_path: Path) -> None:
+        result, dest = self._menu_with_rules(mocker, tmp_path, "5\n7\nx\n2\nabc\n1.5\n-2\n-1\ns\n")
+
+        assert result.exit_code == 0, result.output
+        assert result.output.count("Choose [1/2/3/4]: ") == 3
+        assert result.output.count("for how many days (0 = off, -1 = no limit) (7): ") == 4
+        assert "The value must be 0 or more, or -1 (no limit).\n" in result.output
+        assert _saved_retention(dest) == {**EXAMPLE_RULES, "days": -1}
+        result.output.encode("ascii")
+
+    def test_a_rule_set_to_zero_is_listed_as_off_and_marked(self, mocker: MockFixture, tmp_path: Path) -> None:
+        result, _ = self._menu_with_rules(mocker, tmp_path, "5\n2\n0\nq\ny\n")
+
+        assert result.exit_code == 0, result.output
+        assert (
+            "  Retention: keep all backups of the last 24 hours\n"
+            "             days rule: off   (changed)\n"
+            "             keep the last backup per week for 4 weeks\n"
+            "             keep the last backup per month forever\n"
+        ) in result.output
+
+    def test_the_first_rule_set_to_zero_carries_the_label(self, mocker: MockFixture, tmp_path: Path) -> None:
+        result, _ = self._menu_with_rules(mocker, tmp_path, "5\n1\n0\nq\ny\n", {"hours": 24, "months": 3})
+
+        assert result.exit_code == 0, result.output
+        assert "  Retention: hours rule: off   (changed)\n             keep the last backup per month for 3 months\nUnsaved" in result.output
+
+    def test_all_rules_set_to_zero_mark_the_off_line(self, mocker: MockFixture, tmp_path: Path) -> None:
+        result, dest = self._menu_with_rules(mocker, tmp_path, "5\n2\n0\ns\n", {"days": 7})
+
+        assert result.exit_code == 0, result.output
+        assert "  Retention: off (no backup is ever deleted)   (changed)\n" in result.output
+        assert _saved_retention(dest) == ALL_RULES_OFF
+
+    def test_a_new_rule_from_off_is_marked(self, mocker: MockFixture, tmp_path: Path) -> None:
+        result, _ = self._menu_with_rules(mocker, tmp_path, "5\n3\n2\nq\ny\n", ALL_RULES_OFF)
+
+        assert result.exit_code == 0, result.output
+        assert "  Retention: keep the last backup per week for 2 weeks   (changed)\nUnsaved" in result.output
+        assert "rule: off" not in result.output
+
+    def test_save_writes_the_rules_and_logs_them(self, mocker: MockFixture, tmp_path: Path) -> None:
+        result, dest = self._menu_with_rules(mocker, tmp_path, "1\n0\n5\n2\n9\n5\n4\n0\ns\n", EXAMPLE_RULES, "--debounce", "5")
+
+        assert result.exit_code == 0, result.output
+        assert _saved_retention(dest) == {"hours": 24, "days": 9, "weeks": 4, "months": 0}
+        session = _last_session_header(dest)
+        assert "Command: config\n" in session
+        assert "Retention rules: hours 24, days 9, weeks 4, months 0\n" in session
+        assert "Settings changed: debounce delay 5 -> 0 seconds; retention.days 7 -> 9; retention.months -1 -> 0\n" in session
+        assert "Saved to " in result.output
+        assert ". The changes take effect at the next start of 'run', 'watch' or 'cleanup'.\n" in result.output
+
+    def test_save_keeps_tracked_files_written_while_the_menu_was_open(self, mocker: MockFixture, tmp_path: Path) -> None:
+        from rich.prompt import IntPrompt
+
+        from trs_file_backup.state import StateManager
+
+        source = tmp_path / "source"
+        source.mkdir()
+        dest = tmp_path / "dest"
+        StateManager(source, dest, 5, [".backup_state.json"], {}).save()
+
+        def backup_happens_meanwhile(*args: object, **kwargs: object) -> int:
+            StateManager(source, dest, 5, [".backup_state.json"], {"a.txt": 2.5}).save()
+            return 9
+
+        mocker.patch.object(IntPrompt, "ask", side_effect=backup_happens_meanwhile)
+
+        result = TestConfigMenu._menu(mocker, dest, "5\n2\ns\n")
+
+        assert result.exit_code == 0, result.output
+        data = json.loads((dest / ".backup_state.json").read_text(encoding="utf-8"))
+        assert data["files"] == {"a.txt": 2.5}
+        assert data["retention"] == {**ALL_RULES_OFF, "days": 9}
+        assert data["source_path"] == str(source)
+
+    def test_quit_after_a_rule_change_asks_and_writes_nothing(self, mocker: MockFixture, tmp_path: Path) -> None:
+        _, dest = _initialized(tmp_path)
+        _store_retention(dest, EXAMPLE_RULES)
+        state_before = _state_bytes(dest)
+        log_before = (dest / "backup.log").read_bytes()
+
+        result = TestConfigMenu._menu(mocker, dest, "5\n2\n9\nq\nn\nq\ny\n")
+
+        assert result.exit_code == 0, result.output
+        assert "keep the last backup per day for 9 days   (changed)\n" in result.output
+        assert result.output.count("Discard the unsaved changes?") == 2
+        assert _state_bytes(dest) == state_before
+        assert (dest / "backup.log").read_bytes() == log_before
+
+    def test_end_of_input_after_a_rule_change_exits_with_one(self, mocker: MockFixture, tmp_path: Path) -> None:
+        result, dest = self._menu_with_rules(mocker, tmp_path, "5\n2\n9\n")
+
+        assert result.exit_code == 1, result.output
+        assert "keep the last backup per day for 9 days   (changed)\n" in result.output
+        assert "nothing saved" in result.output.lower()
+        assert _saved_retention(dest) == EXAMPLE_RULES
+
+    def test_run_uses_the_rules_saved_by_config(self, mocker: MockFixture, tmp_path: Path) -> None:
+        from trs_file_backup.main import app
+
+        source, dest = _initialized(tmp_path)
+        TestConfigMenu._menu(mocker, dest, "5\n2\n12\ns\n")
+        (source / "a.txt").write_text("a")
+
+        result = runner.invoke(app, ["run", "--source", str(source), "--destination", str(dest)])
+
+        assert result.exit_code == 0, result.output
+        assert "Retention rules: hours 0, days 12, weeks 0, months 0\n" in _last_session_header(dest)
 
 
 class TestDestinationIsTheTruth:
