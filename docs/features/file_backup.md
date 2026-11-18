@@ -759,6 +759,24 @@ A session has:
 - **Operations**: File backups, exclusions, errors during session
 - **Summary**: Statistics and completion status at session end
 
+## Known Limitations
+
+Behaviour that is known, not wanted, and accepted for now.
+Each entry names the decision, so that it is not reported again as a new defect.
+
+### KL-1: Two backups of one file within the same second share a name
+
+The backup name has a resolution of one second (AC-2.2).
+When the same file is backed up twice within one second, both backups get the same name,
+and the newer complete backup replaces the older one (`os.replace`, AC-2.8).
+Only the newer version is kept; a failed copy still leaves the older backup unchanged (AC-2.8).
+This was already the behaviour before AC-2.8; the test `test_a_successful_backup_replaces_a_file_of_the_same_name` in `tests/test_backup.py` pins it.
+
+**Decision (2026-11-18):** known and accepted for now.
+With the default debounce delay of 2 seconds (AC-5.5), `watch` rarely backs up one file twice within one second.
+One `run` backs up each file at most once; only two runs started within the same second can collide.
+A change, for example a counter suffix for a name that is already taken, needs its own issue and changes AC-2.2 and that test on purpose.
+
 ## Implementation Notes
 
 ### General
