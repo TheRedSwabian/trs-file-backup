@@ -186,9 +186,6 @@ class TestRunCommand:
         test_file = source / "test.txt"
         test_file.write_text("test content")
 
-        # Mock sleep to speed up test
-        mocker.patch("time.sleep")
-
         result = runner.invoke(
             app,
             ["run", "--source", str(source), "--destination", str(dest)],
@@ -207,7 +204,6 @@ class TestRunCommand:
         notes = source / "notes.txt"
         notes.write_text("first version")
         os.utime(notes, (1000.0, 1000.0))
-        mocker.patch("time.sleep")
 
         def write_during_copy(path: Path, timestamp: object) -> Path:
             notes.write_text("second version")
@@ -230,7 +226,6 @@ class TestRunCommand:
         source = tmp_path / "source"
         source.mkdir()
         (source / "[red]notes.txt").write_text("content")
-        mocker.patch("time.sleep")
 
         result = runner.invoke(app, ["run", "--source", str(source), "--destination", str(tmp_path / "dest"), *(["--dry-run"] if dry_run else [])])
 
@@ -249,8 +244,6 @@ class TestRunCommand:
         # Create test files
         (source / "test.txt").write_text("test")
         (source / "debug.log").write_text("log")
-
-        mocker.patch("time.sleep")
 
         result = runner.invoke(
             app,
@@ -295,8 +288,6 @@ class TestRunCommand:
 
         (source / "test.txt").write_text("test")
 
-        mocker.patch("time.sleep")
-
         result = runner.invoke(
             app,
             ["run", "--source", str(source), "--destination", str(dest)],
@@ -331,7 +322,6 @@ class TestRunCommand:
         (source / "test.txt").write_text("test")
 
         # Mock backup_file to raise PermissionError
-        mocker.patch("time.sleep")
         _mock_backup = mocker.patch("trs_file_backup.backup.BackupManager.backup_file", side_effect=PermissionError("Access denied"))
 
         result = runner.invoke(
@@ -353,7 +343,6 @@ class TestRunCommand:
         (source / "test.txt").write_text("test")
 
         # Mock backup_file to raise OSError (file locked)
-        mocker.patch("time.sleep")
         _mock_backup = mocker.patch("trs_file_backup.backup.BackupManager.backup_file", side_effect=OSError("File is locked"))
 
         result = runner.invoke(
@@ -377,7 +366,6 @@ class TestRunCommand:
         (source / "test.txt").write_text("test")
 
         # Run once to create state
-        mocker.patch("time.sleep")
         result = runner.invoke(
             app,
             ["run", "--source", str(source), "--destination", str(dest)],
@@ -536,7 +524,6 @@ class TestSavedSettings:
         _init(source, dest, "--exclude", "*.log", "--debounce", "5")
         (source / "a.txt").write_text("a")
         (source / "b.log").write_text("b")
-        mocker.patch("time.sleep")
 
         result = runner.invoke(app, ["run", "--source", str(source), "--destination", str(dest)])
 
@@ -576,7 +563,6 @@ class TestSavedSettings:
         _init(source, dest, "--exclude", "*.log", "--debounce", "5")
         (source / "b.log").write_text("b")
         (source / "c.tmp").write_text("c")
-        mocker.patch("time.sleep")
 
         result = runner.invoke(app, ["run", "--source", str(source), "--destination", str(dest), "--exclude", "*.tmp"])
 
@@ -594,7 +580,6 @@ class TestSavedSettings:
         _init(source, dest, "--exclude", "*.log", "--debounce", "5")
         (source / "a.txt").write_text("a")
         (source / "b.log").write_text("b")
-        mocker.patch("time.sleep")
 
         result = runner.invoke(app, ["run", "--source", str(source), "--destination", str(dest), "--debounce", "0"])
 
@@ -610,7 +595,6 @@ class TestSavedSettings:
         source.mkdir()
         dest = tmp_path / "dest"
         (source / "a.txt").write_text("a")
-        mocker.patch("time.sleep")
 
         result = runner.invoke(app, ["run", "--source", str(source), "--destination", str(dest)])
 
@@ -626,7 +610,6 @@ class TestSavedSettings:
         dest = tmp_path / "dest"
         _init(source, dest)
         (source / "a.txt").write_text("a")
-        mocker.patch("time.sleep")
 
         result = runner.invoke(
             app,
@@ -646,7 +629,6 @@ class TestSavedSettings:
         dest = tmp_path / "dest"
         StateManager(source, dest, 5, [".backup_state.json", "*.log", ".backup_state.json"], {}).save()
         (source / "a.txt").write_text("a")
-        mocker.patch("time.sleep")
 
         result = runner.invoke(app, ["run", "--source", str(source), "--destination", str(dest)])
 
@@ -663,7 +645,6 @@ class TestSavedSettings:
         dest = tmp_path / "dest"
         if initialized:
             _init(source, dest, "--exclude", "*.log", "--debounce", "5")
-        mocker.patch("time.sleep")
 
         result = runner.invoke(app, ["run", "--source", str(source), "--destination", str(dest), "--exclude", "*.tmp", "--debounce", "3"])
 
@@ -682,7 +663,6 @@ class TestSavedSettings:
         if modified_file:
             (source / "a.txt").write_text("a")
         state_before = (dest / ".backup_state.json").read_bytes()
-        mocker.patch("time.sleep")
 
         result = runner.invoke(
             app,
@@ -1203,7 +1183,6 @@ class TestConfigMenu:
         self._menu(mocker, dest, "1\n0\n4\n2\n*.tmp\ns\n")
         (source / "a.log").write_text("a")
         (source / "b.tmp").write_text("b")
-        mocker.patch("time.sleep")
 
         result = runner.invoke(app, ["run", "--source", str(source), "--destination", str(dest)])
 
@@ -1235,7 +1214,6 @@ class TestDestinationIsTheTruth:
         from trs_file_backup.main import app
 
         source, dest, dest2, dest_state = self._copied_backup(tmp_path)
-        mocker.patch("time.sleep")
 
         result = runner.invoke(app, ["run", "--source", str(source), "--destination", str(dest2), "--debounce", "0"])
 
@@ -1288,7 +1266,6 @@ class TestSourceMustMatchTheStateFile:
         from trs_file_backup.main import app
 
         source, other, dest, state_before, log_before = self._other_source(tmp_path)
-        mocker.patch("time.sleep")
 
         result = runner.invoke(app, ["run", "--source", str(other), "--destination", str(dest), "--debounce", "0"])
 
@@ -1323,7 +1300,6 @@ class TestSourceMustMatchTheStateFile:
 
         source, dest = _initialized(tmp_path)
         (source / "a.txt").write_text("a")
-        mocker.patch("time.sleep")
 
         result = runner.invoke(app, ["run", "--source", str(source).swapcase(), "--destination", str(dest)])
 
@@ -1339,7 +1315,6 @@ class TestSourceMustMatchTheStateFile:
         (source / "a.txt").write_text("a")
         dest = tmp_path / "dest"
         StateManager(tmp_path / "x" / ".." / "source", dest, 0, [".backup_state.json"], {}).save()
-        mocker.patch("time.sleep")
 
         result = runner.invoke(app, ["run", "--source", str(source), "--destination", str(dest)])
 
@@ -2059,7 +2034,6 @@ class TestPathsInConsoleOutput:
         source.mkdir()
         (source / "[red]a.txt").write_text("content")
         dest = tmp_path / "[red]dest"
-        mocker.patch("time.sleep")
         mocker.patch.object(BackupManager, "backup_file", side_effect=error("no access"))
 
         result = runner.invoke(app, ["run", "--source", str(source), "--destination", str(dest)])
