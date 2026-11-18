@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v3.1.3 (2026-11-18)
+
+### Bug Fixes
+
+- **watch**: Back up created and renamed files (#24, #28)
+  ([`96f61ae`](https://github.com/TheRedSwabian/trs-file-backup/commit/96f61ae3979be1db7d9728f880da3c5f408db907))
+
+### Build System
+
+- Run mypy from the project environment
+  ([`1971c05`](https://github.com/TheRedSwabian/trs-file-backup/commit/1971c0508529131e18c7657b33be4895f46937d6))
+
+
 ## v3.1.2 (2026-11-17)
 
 ### Bug Fixes
