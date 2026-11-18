@@ -125,6 +125,14 @@ class BackupLogger:
         """
         self.logger.warning(f"File excluded: {filename} (matches: {pattern})")
 
+    def log_hidden_file_excluded(self, filename: str) -> None:
+        """Log a file excluded because its name starts with a dot (spec AC-4.1).
+
+        Args:
+            filename: Name of excluded file
+        """
+        self.logger.warning(f"File excluded: {filename} (hidden file)")
+
     def log_file_locked(self, filename: str) -> None:
         """Log locked file warning.
 
@@ -141,13 +149,14 @@ class BackupLogger:
         """
         self.logger.error(message)
 
-    def log_file_modified(self, filename: str) -> None:
-        """Log file modification event (watch mode).
+    def log_file_changed(self, filename: str, change: str) -> None:
+        """Log a file event that queues a backup (watch mode).
 
         Args:
-            filename: Name of modified file
+            filename: Name of the file
+            change: Kind of change: "modified", "created" or "moved"
         """
-        self.logger.info(f"File modified: {filename}")
+        self.logger.info(f"File {change}: {filename}")
 
     def log_watch_started(self) -> None:
         """Log watch mode started."""

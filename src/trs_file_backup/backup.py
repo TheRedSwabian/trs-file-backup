@@ -1,10 +1,18 @@
 """File backup operations."""
 
 import shutil
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 from trs_file_backup.state import StateManager
+
+
+@dataclass(frozen=True)
+class ExclusionReason:
+    """Why a file is excluded: the first matching pattern, or None for a hidden file (spec AC-4.1)."""
+
+    pattern: str | None
 
 
 class BackupManager:
@@ -49,10 +57,32 @@ class BackupManager:
         return f"{name_without_ext}_{timestamp_str}{extension}"
 
     @staticmethod
-    def matches_exclusion_pattern(filename: str, patterns: list[str]) -> bool:
-        """Check if filename matches any exclusion pattern.
+    def exclusion_reason(filename: str, patterns: list[str]) -> ExclusionReason | None:
+        """Return why filename is excluded, or None if it is not excluded.
 
-        Hidden files (starting with .) are always excluded.
+        Hidden files (starting with .) are always excluded (spec AC-4.1), before any pattern is checked.
+
+        Args:
+            filename: Filename to check
+            patterns: List of exclusion patterns (supports wildcards)
+
+        Returns:
+            ExclusionReason(pattern=None) for a hidden file, ExclusionReason(pattern=...) with the first
+            matching pattern, or None if the file is not excluded
+        """
+        if filename.startswith("."):
+            return ExclusionReason(pattern=None)
+
+        path = Path(filename)
+        for pattern in patterns:
+            if path.match(pattern):
+                return ExclusionReason(pattern=pattern)
+
+        return None
+
+    @staticmethod
+    def matches_exclusion_pattern(filename: str, patterns: list[str]) -> bool:
+        """Check if filename is excluded (see exclusion_reason).
 
         Args:
             filename: Filename to check
@@ -61,17 +91,7 @@ class BackupManager:
         Returns:
             True if filename should be excluded, False otherwise
         """
-        # Always exclude hidden files
-        if filename.startswith("."):
-            return True
-
-        # Check against patterns
-        path = Path(filename)
-        for pattern in patterns:
-            if path.match(pattern):
-                return True
-
-        return False
+        return BackupManager.exclusion_reason(filename, patterns) is not None
 
     def get_files_to_backup(self) -> list[Path]:
         """Get list of files that need to be backed up.

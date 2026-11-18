@@ -113,6 +113,24 @@ class TestStateManager:
         assert state.destination_path == moved
         assert state.state_file_path == moved / ".backup_state.json"
 
+    def test_load_drops_patterns_that_cannot_be_matched(self, tmp_path: Path) -> None:
+        """Patterns that AC-4.9 rejects, saved by older versions, are dropped silently when the state file is read."""
+        from trs_file_backup.state import StateManager
+
+        stored = {
+            "source_path": "/source",
+            "destination_path": "/dest",
+            "debounce_seconds": 2,
+            "excluded_patterns": ["", ".backup_state.json", "  ", "\t", ".", "./", "..", "logs/*.log", "sub\\*.log", "*.log", "temp_*", ".env"],
+            "files": {},
+        }
+        (tmp_path / ".backup_state.json").write_text(json.dumps(stored), encoding="utf-8")
+
+        state = StateManager.load(tmp_path / ".backup_state.json")
+
+        assert state is not None
+        assert state.excluded_patterns == [".backup_state.json", "*.log", "temp_*", ".env"]
+
     def test_load_state_file_not_exists(self, mocker: MockFixture) -> None:
         """Test loading when state file doesn't exist returns None."""
         mocker.patch("pathlib.Path.exists", return_value=False)
