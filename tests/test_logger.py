@@ -40,6 +40,7 @@ class TestBackupLogger:
     def test_log_session_start(self, mocker: MockFixture) -> None:
         """Test logging session start with configuration."""
         from trs_file_backup.logger import BackupLogger
+        from trs_file_backup.retention import RetentionRules
 
         mock_logger = Mock()
         mock_logger.handlers = []  # Set handlers as empty list for iteration
@@ -54,6 +55,7 @@ class TestBackupLogger:
             destination_path=Path("/dest"),
             excluded_patterns=["*.log"],
             debounce_seconds=2,
+            retention=RetentionRules(hours=24, days=7, weeks=4, months=-1),
         )
 
         # Check that session started log was written
@@ -64,6 +66,24 @@ class TestBackupLogger:
         assert any("Destination:" in str(call) for call in calls)
         assert any("Exclusion patterns:" in str(call) for call in calls)
         assert any("Debounce delay: 2" in str(call) for call in calls)
+        # The rules are the last line of the header (spec AC-6.13)
+        assert mock_logger.info.call_args_list[-1].args == ("Retention rules: hours 24, days 7, weeks 4, months -1",)
+
+    def test_log_session_start_lists_rules_that_are_off(self, mocker: MockFixture) -> None:
+        """All four rules are listed also when they are 0 (spec AC-6.13)."""
+        from trs_file_backup.logger import BackupLogger
+        from trs_file_backup.retention import RetentionRules
+
+        mock_logger = Mock()
+        mock_logger.handlers = []
+        _patch_backup_logger(mocker, mock_logger)
+        mocker.patch("pathlib.Path.mkdir")
+        mocker.patch("logging.FileHandler")
+
+        logger = BackupLogger(Path("/dest"))
+        logger.log_session_start("init", Path("/source"), Path("/dest"), [".backup_state.json"], 2, RetentionRules())
+
+        assert mock_logger.info.call_args_list[-1].args == ("Retention rules: hours 0, days 0, weeks 0, months 0",)
 
     def test_log_session_end(self, mocker: MockFixture) -> None:
         """Test logging session end with summary."""

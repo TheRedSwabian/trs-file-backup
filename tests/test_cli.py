@@ -15,6 +15,7 @@ from unittest.mock import Mock, patch
 
 import click
 import pytest
+import typer.main
 from pytest_mock import MockFixture
 from typer.testing import CliRunner, Result
 
@@ -1215,6 +1216,219 @@ class TestConfigMenu:
         assert _backed_up(dest, "a", ".log")
         assert not _backed_up(dest, "b", ".tmp")
         assert "Debounce delay: 0 seconds" in _last_session_header(dest)
+
+
+def _store_retention(dest: Path, retention: object) -> None:
+    """Write retention into the state file in dest as a hand edit would, keeping all other fields."""
+    path = dest / ".backup_state.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["retention"] = retention
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+
+def _remove_retention(dest: Path) -> None:
+    """Remove retention from the state file in dest, as versions before the retention rules wrote it."""
+    path = dest / ".backup_state.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    del data["retention"]
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+
+def _saved_retention(dest: Path) -> object:
+    return json.loads((dest / ".backup_state.json").read_text(encoding="utf-8"))["retention"]
+
+
+ALL_RULES_OFF = {"hours": 0, "days": 0, "weeks": 0, "months": 0}
+EXAMPLE_RULES = {"hours": 24, "days": 7, "weeks": 4, "months": -1}
+
+
+class TestRetentionRulesInSettings:
+    """The retention rules live in the state file (spec AC-8.15, AC-8.16), in the session header (AC-6.13) and in config show (AC-7.1, AC-7.16)."""
+
+    def test_init_saves_all_rules_as_zero_and_logs_them(self, tmp_path: Path) -> None:
+        _, dest = _initialized(tmp_path)
+
+        assert _saved_retention(dest) == ALL_RULES_OFF
+        assert "Retention rules: hours 0, days 0, weeks 0, months 0\n" in _last_session_header(dest)
+
+    @pytest.mark.parametrize(
+        ("stored", "expected"),
+        [(EXAMPLE_RULES, EXAMPLE_RULES), ({"days": 7}, {**ALL_RULES_OFF, "days": 7}), (None, ALL_RULES_OFF)],
+        ids=["all-rules", "one-rule", "older-state-file"],
+    )
+    def test_run_writes_the_rules_back_as_it_read_them_and_logs_them(self, tmp_path: Path, stored: dict[str, int] | None, expected: dict[str, int]) -> None:
+        from trs_file_backup.main import app
+
+        source, dest = _initialized(tmp_path)
+        if stored is None:
+            _remove_retention(dest)
+        else:
+            _store_retention(dest, stored)
+        (source / "a.txt").write_text("a")
+
+        result = runner.invoke(app, ["run", "--source", str(source), "--destination", str(dest)])
+
+        assert result.exit_code == 0, result.output
+        assert _saved_retention(dest) == expected
+        header = _last_session_header(dest)
+        rules_line = "Retention rules: " + ", ".join(f"{name} {value}" for name, value in expected.items())
+        # The rules are the last line of the header, before the first line of the work (spec AC-6.13)
+        assert f"{rules_line}\n" in header
+        assert header.index("Debounce delay:") < header.index(rules_line) < header.index("Found 1 modified files")
+
+    def test_watch_writes_the_rules_back_as_it_read_them_and_logs_them(self, mocker: MockFixture, tmp_path: Path) -> None:
+        source, dest = _initialized(tmp_path)
+        _store_retention(dest, {"weeks": 4, "months": -1})
+
+        TestSavedSettings._invoke_watch(mocker, source, dest)
+
+        assert _saved_retention(dest) == {"hours": 0, "days": 0, "weeks": 4, "months": -1}
+        assert "Retention rules: hours 0, days 0, weeks 4, months -1\n" in _last_session_header(dest)
+
+    @pytest.mark.parametrize(
+        ("retention", "key"),
+        [
+            pytest.param({"hours": -2}, "retention.hours = -2", id="below-minus-one"),
+            pytest.param({"days": "7"}, 'retention.days = "7"', id="string"),
+            pytest.param({"hourz": 7}, "retention.hourz = 7", id="unknown-key"),
+            pytest.param(5, "retention = 5", id="not-an-object"),
+        ],
+    )
+    @pytest.mark.parametrize("command", ["run", "watch", "config show", "config without terminal", "config menu"])
+    def test_invalid_stored_rule_stops_the_command_before_anything_is_written(self, mocker: MockFixture, tmp_path: Path, command: str, retention: object, key: str) -> None:
+        from trs_file_backup.main import app
+
+        source, dest = _initialized(tmp_path)
+        (source / "a.txt").write_text("a")
+        _store_retention(dest, retention)
+        state_before = _state_bytes(dest)
+        log_before = (dest / "backup.log").read_bytes()
+        observer = mocker.patch("trs_file_backup.main.Observer")
+        mocker.patch("time.sleep", side_effect=KeyboardInterrupt())
+        mocker.patch("trs_file_backup.main._stdin_is_terminal", return_value=command == "config menu")
+        arguments = {
+            "run": ["run", "--source", str(source), "--destination", str(dest)],
+            "watch": ["watch", "--source", str(source), "--destination", str(dest)],
+            "config show": ["config", "show", "--destination", str(dest)],
+            "config without terminal": ["config", "--destination", str(dest)],
+            "config menu": ["config", "--destination", str(dest)],
+        }[command]
+
+        result = runner.invoke(app, arguments, input="s\n")
+
+        assert result.exit_code == 1
+        output = click.unstyle(result.output)
+        # Rich wraps the error line at the console width and drops the space where it breaks, so compare without whitespace
+        compact = re.sub(r"\s", "", output)
+        for expected in ("Error:", str(dest / ".backup_state.json"), key, "0 or more, or -1"):
+            assert re.sub(r"\s", "", expected) in compact
+        # The error is the message of AC-8.16, not the generic "cannot read" error with the exception's name
+        assert "cannot read" not in output
+        assert "InvalidRetentionRuleError" not in compact
+        assert "Choose" not in output
+        assert "Traceback" not in output
+        observer.assert_not_called()
+        assert not _backed_up(dest, "a", ".txt")
+        assert _state_bytes(dest) == state_before
+        assert (dest / "backup.log").read_bytes() == log_before
+
+    def test_show_prints_the_rules_as_a_block(self, tmp_path: Path) -> None:
+        from trs_file_backup.main import app
+
+        _, dest = _initialized(tmp_path, "--exclude", "*.log", "--exclude", "temp_*")
+        _store_retention(dest, EXAMPLE_RULES)
+
+        result = runner.invoke(app, ["config", "show", "--destination", str(dest)])
+
+        assert result.exit_code == 0, result.output
+        assert result.output.endswith(
+            "  Excluded:  1) *.log\n"
+            "             2) temp_*\n"
+            "  Retention: keep all backups of the last 24 hours\n"
+            "             keep the last backup per day for 7 days\n"
+            "             keep the last backup per week for 4 weeks\n"
+            "             keep the last backup per month forever\n"
+        )
+        result.output.encode("ascii")
+
+    def test_show_prints_off_when_all_rules_are_zero(self, tmp_path: Path) -> None:
+        from trs_file_backup.main import app
+
+        _, dest = _initialized(tmp_path)
+
+        result = runner.invoke(app, ["config", "show", "--destination", str(dest)])
+
+        assert result.exit_code == 0, result.output
+        assert result.output.endswith("  Excluded:  (none)\n  Retention: off (no backup is ever deleted)\n")
+
+    def test_show_prints_off_for_a_state_file_without_rules(self, tmp_path: Path) -> None:
+        from trs_file_backup.main import app
+
+        _, dest = _initialized(tmp_path)
+        _remove_retention(dest)
+
+        result = runner.invoke(app, ["config", "show", "--destination", str(dest)])
+
+        assert result.exit_code == 0, result.output
+        assert result.output.endswith("  Retention: off (no backup is ever deleted)\n")
+
+    @pytest.mark.parametrize(
+        ("rules", "lines"),
+        [
+            pytest.param(
+                {"hours": 1, "days": 1, "weeks": 1, "months": 1},
+                [
+                    "  Retention: keep all backups of the last 1 hour",
+                    "             keep the last backup per day for 1 day",
+                    "             keep the last backup per week for 1 week",
+                    "             keep the last backup per month for 1 month",
+                ],
+                id="singular",
+            ),
+            pytest.param(
+                {"hours": -1, "days": -1, "weeks": -1, "months": -1},
+                [
+                    "  Retention: keep all backups",
+                    "             keep the last backup per day forever",
+                    "             keep the last backup per week forever",
+                    "             keep the last backup per month forever",
+                ],
+                id="no-limit",
+            ),
+            pytest.param({"weeks": 2}, ["  Retention: keep the last backup per week for 2 weeks"], id="only-non-zero-rules"),
+            pytest.param(
+                {"hours": 48, "months": 12},
+                ["  Retention: keep all backups of the last 48 hours", "             keep the last backup per month for 12 months"],
+                id="gap",
+            ),
+            pytest.param({}, ["  Retention: off (no backup is ever deleted)"], id="off"),
+        ],
+    )
+    def test_retention_lines_follow_the_rule_texts(self, rules: dict[str, int], lines: list[str]) -> None:
+        from trs_file_backup.main import retention_lines
+        from trs_file_backup.retention import RetentionRules
+
+        assert retention_lines(RetentionRules(**rules)) == lines
+
+    def test_menu_shows_the_rules_and_keeps_them_when_it_saves(self, mocker: MockFixture, tmp_path: Path) -> None:
+        _, dest = _initialized(tmp_path, "--debounce", "5")
+        _store_retention(dest, EXAMPLE_RULES)
+
+        result = TestConfigMenu._menu(mocker, dest, "1\n0\ns\n")
+
+        assert result.exit_code == 0, result.output
+        assert "  Retention: keep all backups of the last 24 hours\n" in result.output
+        assert _saved_retention(dest) == EXAMPLE_RULES
+        assert "Retention rules: hours 24, days 7, weeks 4, months -1\n" in _last_session_header(dest)
+
+    @pytest.mark.parametrize("command", ["init", "run", "watch", "config"])
+    def test_no_command_takes_a_rule_as_an_option(self, command: str) -> None:
+        """The rules are changed with config only (spec AC-8.15)."""
+        from trs_file_backup.main import app
+
+        options = [option for param in typer.main.get_group(app).commands[command].params for option in param.opts]
+
+        assert not [option for option in options if any(word in option for word in ("retention", "hours", "days", "weeks", "months", "keep"))]
 
 
 class TestDestinationIsTheTruth:

@@ -3,6 +3,8 @@
 import logging
 from pathlib import Path
 
+from trs_file_backup.retention import RULE_FIELDS, RetentionRules
+
 
 class BackupLogger:
     """Handles logging of backup operations to file."""
@@ -52,8 +54,9 @@ class BackupLogger:
         destination_path: Path,
         excluded_patterns: list[str],
         debounce_seconds: int,
+        retention: RetentionRules,
     ) -> None:
-        """Log session start with configuration.
+        """Log session start with configuration (spec AC-6.13).
 
         Args:
             command: Command being executed (init, run, watch, config)
@@ -61,6 +64,7 @@ class BackupLogger:
             destination_path: Destination directory path
             excluded_patterns: List of exclusion patterns
             debounce_seconds: Debounce delay in seconds
+            retention: Retention rules, logged as the last line of the header, also when they are 0
         """
         self.logger.info("=" * 10 + " Session Started " + "=" * 10)
         self.logger.info(f"Command: {command}")
@@ -68,6 +72,7 @@ class BackupLogger:
         self.logger.info(f"Destination: {destination_path}")
         self.logger.info(f"Exclusion patterns: {', '.join(excluded_patterns)}")
         self.logger.info(f"Debounce delay: {debounce_seconds} seconds")
+        self.logger.info(f"Retention rules: {', '.join(f'{name} {getattr(retention, name)}' for name in RULE_FIELDS)}")
 
     def log_session_end(self, files_backed_up: int = 0, files_total: int = 0) -> None:
         """Log session end with summary.

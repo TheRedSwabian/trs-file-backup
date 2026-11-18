@@ -300,3 +300,94 @@ class TestStateManager:
 
         expected_path = Path("/dest") / ".backup_state.json"
         assert state.state_file_path == expected_path
+
+
+def _write_state(folder: Path, **extra: object) -> Path:
+    """Write a state file with the fields of an older version plus extra, and return its path."""
+    stored = {"source_path": "/source", "destination_path": str(folder), "debounce_seconds": 2, "excluded_patterns": [".backup_state.json"], "files": {}, **extra}
+    path = folder / ".backup_state.json"
+    path.write_text(json.dumps(stored), encoding="utf-8")
+    return path
+
+
+class TestRetentionRulesInTheStateFile:
+    """The retention rules are saved as the object retention (spec AC-8.15); an invalid stored rule is an error (spec AC-8.16)."""
+
+    def test_new_state_has_all_rules_off(self) -> None:
+        from trs_file_backup.retention import RetentionRules
+        from trs_file_backup.state import StateManager
+
+        state = StateManager(Path("/source"), Path("/dest"), 2, [], {})
+
+        assert state.retention == RetentionRules()
+
+    def test_save_writes_the_rules_as_an_object_with_four_integer_keys(self, tmp_path: Path) -> None:
+        from trs_file_backup.retention import RetentionRules
+        from trs_file_backup.state import StateManager
+
+        StateManager(tmp_path, tmp_path, 2, [], {}, RetentionRules(hours=24, days=7, weeks=4, months=-1)).save()
+
+        data = json.loads((tmp_path / ".backup_state.json").read_text(encoding="utf-8"))
+        assert data["retention"] == {"hours": 24, "days": 7, "weeks": 4, "months": -1}
+        assert list(data) == ["source_path", "destination_path", "log_file", "debounce_seconds", "excluded_patterns", "retention", "files"]
+
+    def test_load_reads_the_saved_rules(self, tmp_path: Path) -> None:
+        from trs_file_backup.retention import RetentionRules
+        from trs_file_backup.state import StateManager
+
+        path = _write_state(tmp_path, retention={"hours": 24, "days": 7, "weeks": 4, "months": -1})
+
+        state = StateManager.load(path)
+
+        assert state is not None
+        assert state.retention == RetentionRules(hours=24, days=7, weeks=4, months=-1)
+
+    @pytest.mark.parametrize(
+        ("extra", "expected"),
+        [({}, {}), ({"retention": {}}, {}), ({"retention": {"days": 7}}, {"days": 7})],
+        ids=["no-retention", "empty-object", "one-key"],
+    )
+    def test_load_reads_missing_rules_as_zero(self, tmp_path: Path, extra: dict[str, object], expected: dict[str, int]) -> None:
+        from trs_file_backup.retention import RetentionRules
+        from trs_file_backup.state import StateManager
+
+        state = StateManager.load(_write_state(tmp_path, **extra))
+
+        assert state is not None
+        assert state.retention == RetentionRules(**expected)
+
+    @pytest.mark.parametrize(
+        ("retention", "key", "shown_value"),
+        [
+            pytest.param({"hours": True}, "retention.hours", "true", id="bool"),
+            pytest.param({"days": 1.5}, "retention.days", "1.5", id="float"),
+            pytest.param({"weeks": 7.0}, "retention.weeks", "7.0", id="whole-float"),
+            pytest.param({"months": "7"}, "retention.months", '"7"', id="string"),
+            pytest.param({"hours": None}, "retention.hours", "null", id="null"),
+            pytest.param({"days": -2}, "retention.days", "-2", id="below-minus-one"),
+            pytest.param({"hourz": 7}, "retention.hourz", "7", id="unknown-key"),
+            pytest.param(5, "retention", "5", id="number-instead-of-object"),
+            pytest.param([24, 7], "retention", "[24, 7]", id="list-instead-of-object"),
+            pytest.param(None, "retention", "null", id="null-instead-of-object"),
+            # config prints ASCII only apart from paths and patterns (spec AC-7.15)
+            pytest.param({"täge": "ä"}, "retention.t\\xe4ge", '"\\u00e4"', id="non-ascii-key-and-value"),
+        ],
+    )
+    def test_load_rejects_an_invalid_rule_and_names_file_key_value_and_allowed_values(self, tmp_path: Path, retention: object, key: str, shown_value: str) -> None:
+        from trs_file_backup.state import InvalidRetentionRuleError, StateManager
+
+        path = _write_state(tmp_path, retention=retention)
+
+        with pytest.raises(InvalidRetentionRuleError) as caught:
+            StateManager.load(path)
+
+        message = str(caught.value)
+        assert str(path) in message
+        assert f"{key} = {shown_value}" in message
+        assert "0 or more, or -1" in message
+        assert "init" in message
+
+    def test_invalid_rule_error_is_a_value_error(self) -> None:
+        from trs_file_backup.state import InvalidRetentionRuleError
+
+        assert issubclass(InvalidRetentionRuleError, ValueError)

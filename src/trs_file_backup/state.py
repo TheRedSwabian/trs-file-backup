@@ -6,9 +6,41 @@ import time
 from pathlib import Path
 
 from trs_file_backup.patterns import is_usable_pattern
+from trs_file_backup.retention import RULE_FIELDS, RetentionRules, is_valid_rule_value
 
 REPLACE_ATTEMPTS = 5
 REPLACE_RETRY_DELAY_SECONDS = 0.1
+_ALLOWED_VALUE = "0 or more, or -1 (no limit)"
+_ALLOWED_KEYS = f"{', '.join(RULE_FIELDS[:-1])} and {RULE_FIELDS[-1]}, each {_ALLOWED_VALUE}"
+
+
+class InvalidRetentionRuleError(ValueError):
+    """The state file holds a retention rule that spec AC-8.16 does not allow."""
+
+    def __init__(self, state_file_path: Path, key: str, value: object, allowed: str):
+        """Build the message: it names the state file, the key, the value as JSON and the allowed values (spec AC-8.16)."""
+        super().__init__(
+            f"invalid retention rule in {state_file_path}: {key} = {json.dumps(value)}; allowed: {allowed}. "
+            "Correct the rule in the state file, or start a new state with 'trs-file-backup init'."
+        )
+
+
+def _load_retention(state_file_path: Path, stored: object) -> RetentionRules:
+    """Return the rules stored under "retention"; a missing rule is 0 (spec AC-8.15), an invalid one raises (spec AC-8.16).
+
+    Raises:
+        InvalidRetentionRuleError: If "retention" is not an object, holds an unknown key, or holds a value that is not allowed
+    """
+    if not isinstance(stored, dict):
+        raise InvalidRetentionRuleError(state_file_path, "retention", stored, f"an object with the keys {_ALLOWED_KEYS}")
+    for key, value in stored.items():
+        if key not in RULE_FIELDS:
+            # Escaped as the value is, so that config prints ASCII only (spec AC-7.15)
+            shown_key = key.encode("ascii", "backslashreplace").decode("ascii")
+            raise InvalidRetentionRuleError(state_file_path, f"retention.{shown_key}", value, f"only the keys {_ALLOWED_KEYS}")
+        if not is_valid_rule_value(value):
+            raise InvalidRetentionRuleError(state_file_path, f"retention.{key}", value, _ALLOWED_VALUE)
+    return RetentionRules(**stored)
 
 
 class StateManager:
@@ -21,6 +53,7 @@ class StateManager:
         debounce_seconds: int,
         excluded_patterns: list[str],
         files: dict[str, float],
+        retention: RetentionRules = RetentionRules(),  # noqa: B008 - frozen, so one shared instance is safe
     ):
         """Initialize state manager.
 
@@ -30,12 +63,14 @@ class StateManager:
             debounce_seconds: Debounce delay in seconds
             excluded_patterns: List of exclusion patterns
             files: Dictionary mapping filenames to their last backup timestamps
+            retention: The retention rules (spec FR-8); all 0 by default
         """
         self.source_path = source_path
         self.destination_path = destination_path
         self.debounce_seconds = debounce_seconds
         self.excluded_patterns = excluded_patterns
         self.files = files
+        self.retention = retention
 
     @property
     def state_file_path(self) -> Path:
@@ -56,12 +91,14 @@ class StateManager:
         The destination is the folder that holds the state file, not the path stored in it,
         so that a copied or moved backup folder never writes into the old one (spec AC-3.11).
         The next save stores the corrected path.
+        A state file without "retention", or without one of its keys, loads the missing rules as 0 (spec AC-8.15).
 
         Returns:
             StateManager instance if file exists, None otherwise
 
         Raises:
             json.JSONDecodeError: If state file contains invalid JSON
+            InvalidRetentionRuleError: If a stored retention rule is invalid (spec AC-8.16)
         """
         path = Path(state_file_path)
         if not path.exists():
@@ -77,6 +114,7 @@ class StateManager:
             # Older versions saved patterns that cannot be used as file-name patterns; drop them (spec AC-4.9)
             excluded_patterns=[pattern for pattern in data["excluded_patterns"] if is_usable_pattern(pattern)],
             files=data["files"],
+            retention=_load_retention(path, data.get("retention", {})),
         )
 
     def save(self) -> None:
@@ -95,6 +133,7 @@ class StateManager:
             "log_file": "backup.log",
             "debounce_seconds": self.debounce_seconds,
             "excluded_patterns": self.excluded_patterns,
+            "retention": {name: getattr(self.retention, name) for name in RULE_FIELDS},
             "files": self.files,
         }
 

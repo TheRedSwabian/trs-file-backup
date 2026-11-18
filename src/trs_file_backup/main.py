@@ -21,7 +21,8 @@ from trs_file_backup import __version__
 from trs_file_backup.backup import BackupErrorKind, BackupManager, backup_error_reason, classify_backup_error
 from trs_file_backup.logger import BackupLogger
 from trs_file_backup.patterns import pattern_problem
-from trs_file_backup.state import StateManager
+from trs_file_backup.retention import NO_LIMIT, RULE_FIELDS, RetentionRules
+from trs_file_backup.state import InvalidRetentionRuleError, StateManager
 
 app = typer.Typer(
     name="trs-file-backup",
@@ -194,10 +195,20 @@ def init(
     Note:
       Exclusion patterns and debounce setting specified here are saved.
       Later 'run' and 'watch' commands use them, unless they are given --exclude or --debounce, which replaces the saved value.
+      The retention rules are saved as 0 (off); change them with 'config'.
     """
     logger = None
     try:
         excluded_patterns = exclusion_patterns(exclude)
+
+        # Create initial state; the retention rules start as 0 (spec AC-8.15)
+        state = StateManager(
+            source_path=source,
+            destination_path=destination,
+            debounce_seconds=debounce,
+            excluded_patterns=excluded_patterns,
+            files={},
+        )
 
         # Create logger
         logger = BackupLogger(destination)
@@ -209,15 +220,7 @@ def init(
             destination_path=destination,
             excluded_patterns=excluded_patterns,
             debounce_seconds=debounce,
-        )
-
-        # Create initial state
-        state = StateManager(
-            source_path=source,
-            destination_path=destination,
-            debounce_seconds=debounce,
-            excluded_patterns=excluded_patterns,
-            files={},
+            retention=state.retention,
         )
 
         # Save state
@@ -332,6 +335,7 @@ def run(
             destination_path=destination,
             excluded_patterns=excluded_patterns,
             debounce_seconds=debounce_seconds,
+            retention=state.retention,
         )
 
         # Create backup manager
@@ -658,6 +662,7 @@ def watch(
             destination_path=destination,
             excluded_patterns=excluded_patterns,
             debounce_seconds=debounce_seconds,
+            retention=state.retention,
         )
         logger.log_watch_started()
 
@@ -718,14 +723,18 @@ DESTINATION_HELP = "Destination backup directory that holds the state file"
 
 @dataclass
 class SettingsDraft:
-    """The settings the config menu edits: the debounce delay and the user patterns, without the state file pattern."""
+    """The settings the config menu shows: the debounce delay, the user patterns without the state file pattern, and the retention rules.
+
+    The menu edits the delay and the patterns; it saves the retention rules as the state file holds them.
+    """
 
     debounce_seconds: int
     patterns: list[str]
+    retention: RetentionRules
 
     @classmethod
     def of(cls, state: StateManager) -> "SettingsDraft":
-        return cls(state.debounce_seconds, user_patterns(state.excluded_patterns))
+        return cls(state.debounce_seconds, user_patterns(state.excluded_patterns), state.retention)
 
 
 def user_patterns(patterns: list[str]) -> list[str]:
@@ -755,10 +764,13 @@ def _required_destination(destination: Path | None) -> Path:
 
 
 def _load_saved_state(destination: Path) -> StateManager:
-    """Load the state file, or end with exit code 1 without creating anything (spec AC-7.12)."""
+    """Load the state file, or end with exit code 1 without creating anything (spec AC-7.12, AC-8.16)."""
     state_file = destination / STATE_FILE_NAME
     try:
         state = StateManager.load(state_file)
+    except InvalidRetentionRuleError as e:
+        # The message names the state file, the key, the value and the allowed values (spec AC-8.16)
+        _error(str(e))
     except Exception as e:
         _error(f"cannot read {state_file}: {e!r}")
     if state is None:
@@ -766,8 +778,35 @@ def _load_saved_state(destination: Path) -> StateManager:
     return state
 
 
+# Per rule: the unit, and the texts for N greater than 0 and for -1 (spec AC-7.16)
+_RULE_TEXTS = {
+    "hours": ("hour", "keep all backups of the last {count}", "keep all backups"),
+    "days": ("day", "keep the last backup per day for {count}", "keep the last backup per day forever"),
+    "weeks": ("week", "keep the last backup per week for {count}", "keep the last backup per week forever"),
+    "months": ("month", "keep the last backup per month for {count}", "keep the last backup per month forever"),
+}
+RETENTION_LABEL = "  Retention: "
+
+
+def retention_lines(rules: RetentionRules) -> list[str]:
+    """Return the retention block of the settings: one line per rule that is not 0, or the "off" line (spec AC-7.16)."""
+    texts = []
+    for name in RULE_FIELDS:
+        value = getattr(rules, name)
+        unit, limited, unlimited = _RULE_TEXTS[name]
+        if value == NO_LIMIT:
+            texts.append(unlimited)
+        elif value > 0:
+            plural = "" if value == 1 else "s"
+            texts.append(limited.format(count=f"{value} {unit}{plural}"))
+    if not texts:
+        return [f"{RETENTION_LABEL}off (no backup is ever deleted)"]
+    indent = " " * len(RETENTION_LABEL)
+    return [f"{RETENTION_LABEL if number == 0 else indent}{text}" for number, text in enumerate(texts)]
+
+
 def _print_settings(source: Path, draft: SettingsDraft, saved: SettingsDraft) -> None:
-    """Print the settings and mark what differs from the saved ones (spec AC-7.1, AC-7.9)."""
+    """Print the settings and mark what differs from the saved ones (spec AC-7.1, AC-7.9); the retention block follows AC-7.16, still without marks."""
     _say("Saved settings")
     _say(f"  Source:    {source}   (read-only)")
     changed = "   (changed)" if draft.debounce_seconds != saved.debounce_seconds else ""
@@ -781,6 +820,8 @@ def _print_settings(source: Path, draft: SettingsDraft, saved: SettingsDraft) ->
     removed = [pattern for pattern in saved.patterns if pattern not in draft.patterns]
     if removed:
         _say(f"  Removed:   {', '.join(removed)}")
+    for line in retention_lines(draft.retention):
+        _say(line)
 
 
 def _ask_debounce(current: int) -> int:
@@ -849,6 +890,7 @@ def _save(destination: Path, draft: SettingsDraft) -> None:
                 destination_path=destination,
                 excluded_patterns=state.excluded_patterns,
                 debounce_seconds=state.debounce_seconds,
+                retention=state.retention,
             )
             logger.log_settings_saved(_changes(on_disk, draft))
             logger.log_session_end()
@@ -862,7 +904,7 @@ def _save(destination: Path, draft: SettingsDraft) -> None:
 def _run_menu(destination: Path, state: StateManager) -> None:
     """Let the user edit a draft of the settings; write it only on save (spec AC-7.3 to AC-7.11)."""
     saved = SettingsDraft.of(state)
-    draft = SettingsDraft(saved.debounce_seconds, list(saved.patterns))
+    draft = SettingsDraft(saved.debounce_seconds, list(saved.patterns), saved.retention)
     _say(STOP_WATCH_NOTE)
     try:
         while True:
@@ -907,7 +949,7 @@ def config(
         resolve_path=True,
     ),
 ) -> None:
-    """Show and edit the saved settings (debounce delay and exclusion patterns).
+    """Show and edit the saved settings (debounce delay, exclusion patterns and retention rules).
 
     Without a subcommand, this opens a menu to change the debounce delay and to add,
     remove or clear exclusion patterns. Nothing is written before you choose save.
