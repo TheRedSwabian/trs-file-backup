@@ -59,7 +59,7 @@ class BackupLogger:
         """Log session start with configuration (spec AC-6.13).
 
         Args:
-            command: Command being executed (init, run, watch, config)
+            command: Command being executed (init, run, watch, config, cleanup)
             source_path: Source directory path
             destination_path: Destination directory path
             excluded_patterns: List of exclusion patterns
@@ -161,6 +161,15 @@ class BackupLogger:
             backup_name: Name of the locked backup
         """
         self.logger.warning(f"Backup locked, not deleted: {backup_name}")
+
+    def log_cleanup_summary(self, deleted: int, to_delete: int) -> None:
+        """Log the summary of a cleanup session, also when nothing was to be deleted (spec AC-8.14).
+
+        Args:
+            deleted: Number of old backups deleted, a backup already gone included (spec AC-8.13)
+            to_delete: Number of old backups that no rule keeps
+        """
+        self.logger.info(f"Session summary: {deleted} of {to_delete} old backups deleted")
 
     def log_error(self, message: str) -> None:
         """Log error message.

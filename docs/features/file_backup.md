@@ -357,7 +357,8 @@ The rules follow the model of `borg prune` and `restic forget`: count periods, k
     `<deleted>` counts as AC-8.13 defines.
     It shall write one session to `backup.log` (FR-6) with command `cleanup`, the same lines,
     and the summary `Session summary: <deleted> of <to delete> old backups deleted`.
-  - It shall exit with code 1 when the listing or at least one deletion failed, else 0.
+  - It shall exit with code 1 when the listing failed, at least one deletion failed, or the rules could not be applied to a group (AC-8.13), else 0.
+    This holds for `--dry-run` too, which reports such errors on the console only.
   - It shall not write the state file.
 - AC-8.15: The rules shall be saved in the state file as the object `retention` with the integer keys `hours`, `days`, `weeks` and `months`.
   `init` saves all four as 0.
@@ -446,11 +447,11 @@ Options:
   --help, -h     Show this message and exit
 
 Commands:
-  run     Execute a one-time backup of modified files
-  init    Initialize backup tracking for a directory
-  watch   Continuously monitor and backup files in real-time
-  config  Show and edit the saved settings (debounce delay, exclusion patterns and retention rules)
-  cleanup Delete old backups by the saved retention rules
+  init     Initialize backup tracking for a directory
+  run      Execute a one-time backup of modified files
+  watch    Continuously monitor and backup files in real-time
+  cleanup  Delete old backups by the saved retention rules
+  config   Show and edit the saved settings (debounce delay, exclusion patterns and retention rules)
 
 Use 'trs-file-backup COMMAND --help' for more information on a specific command.
 
@@ -1181,7 +1182,9 @@ Around a change of daylight saving time, ages and the order of backups can there
   `retention.plan_retention()` splits them into kept and deleted backups, newest first
 - File access for retention: `backup.list_backup_groups()` lists the backups (AC-8.6, AC-8.7)
   and `backup.delete_backup()` deletes one and returns the outcome without reporting it (AC-8.13);
-  `run` and `watch` apply the rules through `main.RetentionApplier` (AC-8.9 to AC-8.11)
+  `run` and `watch` apply the rules through `main.RetentionApplier` (AC-8.9 to AC-8.11).
+  `cleanup` lists once and plans each group in `main._apply_to_each_group()`; `main._preview_cleanup()` prints the dry run and `main._run_cleanup()` deletes (AC-8.14).
+  All three report through `main.delete_and_report()` and `main.report_retention_error()` (AC-8.13)
 - Implement atomic state file updates (write to temp file, then rename)
 - Use `pathlib.Path.match()` for pattern matching with wildcard support
 - Exclusion patterns: AC-4.6 (file name only) and AC-4.9 (which patterns are accepted)
