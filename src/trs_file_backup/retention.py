@@ -1,6 +1,6 @@
 """Retention rules: read backup names back and decide which backups to keep (spec FR-8).
 
-Nothing here touches the file system; the callers list and delete the files.
+Nothing here touches the file system: backup.list_backup_groups() lists the backups and backup.delete_backup() deletes one.
 All times are naive local time, as the backup names are written (spec AC-2.2, AC-8.4).
 """
 
@@ -157,3 +157,22 @@ def select_backups_to_keep(backups: Iterable[ParsedBackup], rules: RetentionRule
     keep |= _newest_per_period(newest_first, rules.weeks, _iso_week)
     keep |= _newest_per_period(newest_first, rules.months, _calendar_month)
     return keep
+
+
+@dataclass(frozen=True)
+class RetentionPlan:
+    """The backups of one original file split into those the rules keep and those they delete, each newest first."""
+
+    keep: list[ParsedBackup]
+    delete: list[ParsedBackup]
+
+
+def plan_retention(backups: Iterable[ParsedBackup], rules: RetentionRules, now: datetime, always_keep: str | None = None) -> RetentionPlan:
+    """Split the backups of one original file into kept and deleted ones by select_backups_to_keep (spec AC-8.1 to AC-8.5).
+
+    The backup named always_keep is kept whatever the rules say: run and watch pass the backup they have just made (spec AC-8.9).
+    """
+    newest_first = sorted(backups, key=lambda item: (item.timestamp, item.name), reverse=True)
+    keep = select_backups_to_keep(newest_first, rules, now)
+    kept = [item for item in newest_first if item in keep or item.name == always_keep]
+    return RetentionPlan(keep=kept, delete=[item for item in newest_first if item not in kept])

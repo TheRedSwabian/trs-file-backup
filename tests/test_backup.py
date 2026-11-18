@@ -479,3 +479,235 @@ class TestClassifyBackupError:
         from trs_file_backup.backup import backup_error_reason
 
         assert backup_error_reason(error) == reason
+
+
+OLD = datetime(2020, 5, 17, 8, 0, 0)
+
+
+def _make_backup(dest: Path, original: str, timestamp: datetime = OLD) -> Path:
+    """Create a backup file of original at timestamp in dest and return its path."""
+    from trs_file_backup.backup import BackupManager
+
+    path = dest / BackupManager.generate_backup_filename(original, timestamp)
+    path.write_text("old")
+    return path
+
+
+class TestListBackupGroups:
+    """Listing the backups in the destination directory for retention (spec AC-8.6 to AC-8.8)."""
+
+    def test_groups_regular_backup_files_by_original(self, tmp_path: Path) -> None:
+        from trs_file_backup.backup import list_backup_groups
+
+        first = _make_backup(tmp_path, "report.txt", datetime(2020, 1, 1))
+        second = _make_backup(tmp_path, "report.txt", datetime(2020, 1, 2))
+        other = _make_backup(tmp_path, "Report.txt")
+
+        groups = list_backup_groups(tmp_path)
+
+        assert sorted(item.name for item in groups["report.txt"]) == sorted([first.name, second.name])
+        assert [item.name for item in groups["Report.txt"]] == [other.name]
+
+    def test_files_that_are_no_backup_are_left_out(self, tmp_path: Path) -> None:
+        from trs_file_backup.backup import list_backup_groups
+
+        for name in ("backup.log", ".backup_state.json", ".trs-file-backup-0123456789ab.tmp", "notes.txt", "report_2020_13_01__00_00_00.txt"):
+            (tmp_path / name).write_text("x")
+
+        assert list_backup_groups(tmp_path) == {}
+
+    def test_a_directory_with_a_backup_name_is_no_candidate(self, tmp_path: Path) -> None:
+        from trs_file_backup.backup import BackupManager, list_backup_groups
+
+        (tmp_path / BackupManager.generate_backup_filename("report.txt", OLD)).mkdir()
+
+        assert list_backup_groups(tmp_path) == {}
+
+    def test_a_symbolic_link_with_a_backup_name_is_no_candidate(self, tmp_path: Path) -> None:
+        from trs_file_backup.backup import BackupManager, list_backup_groups
+
+        target = tmp_path / "target.txt"
+        target.write_text("x")
+        try:
+            (tmp_path / BackupManager.generate_backup_filename("report.txt", OLD)).symlink_to(target)
+        except OSError:
+            pytest.skip("creating a symbolic link needs a privilege on Windows")
+
+        assert list_backup_groups(tmp_path) == {}
+
+    def test_a_listing_that_fails_raises(self, tmp_path: Path) -> None:
+        from trs_file_backup.backup import list_backup_groups
+
+        with pytest.raises(OSError):
+            list_backup_groups(tmp_path / "missing")
+
+
+class TestDeleteBackup:
+    """Deleting one backup and telling the outcome without reporting it (spec AC-8.13)."""
+
+    def test_deletes_the_file(self, tmp_path: Path) -> None:
+        from trs_file_backup.backup import DeletionKind, delete_backup
+
+        path = _make_backup(tmp_path, "report.txt")
+
+        result = delete_backup(path)
+
+        assert result.kind is DeletionKind.DELETED
+        assert result.counts_as_deleted
+        assert not path.exists()
+
+    def test_deletes_a_read_only_file(self, tmp_path: Path) -> None:
+        from trs_file_backup.backup import DeletionKind, delete_backup
+
+        path = _make_backup(tmp_path, "report.txt")
+        os.chmod(path, stat.S_IREAD)
+
+        assert delete_backup(path).kind is DeletionKind.DELETED
+        assert not path.exists()
+
+    def test_a_file_already_gone_counts_as_deleted(self, tmp_path: Path) -> None:
+        from trs_file_backup.backup import DeletionKind, delete_backup
+
+        result = delete_backup(tmp_path / "report_2020_05_17__08_00_00.txt")
+
+        assert result.kind is DeletionKind.ALREADY_GONE
+        assert result.counts_as_deleted
+
+    def test_a_file_that_vanishes_before_unlink_counts_as_deleted(self, mocker: MockFixture, tmp_path: Path) -> None:
+        from trs_file_backup.backup import DeletionKind, delete_backup
+
+        path = _make_backup(tmp_path, "report.txt")
+        mocker.patch.object(Path, "unlink", side_effect=FileNotFoundError(errno.ENOENT, "No such file or directory"))
+
+        assert delete_backup(path).kind is DeletionKind.ALREADY_GONE
+
+    def test_a_locked_file_is_locked(self, mocker: MockFixture, tmp_path: Path, with_winerror: Callable[[OSError, int], OSError]) -> None:
+        from trs_file_backup.backup import DeletionKind, delete_backup
+
+        path = _make_backup(tmp_path, "report.txt")
+        mocker.patch.object(Path, "unlink", side_effect=with_winerror(PermissionError(errno.EACCES, "sharing violation"), 32))
+
+        result = delete_backup(path)
+
+        assert result.kind is DeletionKind.LOCKED
+        assert not result.counts_as_deleted
+        assert path.exists()
+
+    @pytest.mark.parametrize(
+        ("error", "reason"),
+        [(PermissionError(errno.EACCES, "Permission denied"), "Permission denied"), (OSError(errno.EIO, "Input/output error"), "Input/output error")],
+        ids=["permission", "other"],
+    )
+    def test_another_failure_gives_the_reason(self, mocker: MockFixture, tmp_path: Path, error: OSError, reason: str) -> None:
+        from trs_file_backup.backup import DeletionKind, delete_backup
+
+        path = _make_backup(tmp_path, "report.txt")
+        mocker.patch.object(Path, "unlink", side_effect=error)
+
+        result = delete_backup(path)
+
+        assert result.kind is DeletionKind.FAILED
+        assert result.reason == reason
+        assert not result.counts_as_deleted
+
+    def test_a_read_only_backup_is_deleted_without_changing_its_mode_when_unlink_works(self, mocker: MockFixture, tmp_path: Path) -> None:
+        from trs_file_backup.backup import DeletionKind, delete_backup
+
+        path = _make_backup(tmp_path, "report.txt")
+        os.chmod(path, stat.S_IREAD)
+        mocker.patch.object(Path, "unlink")
+        chmod = mocker.spy(os, "chmod")
+
+        try:
+            assert delete_backup(path).kind is DeletionKind.DELETED
+            chmod.assert_not_called()
+        finally:
+            os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
+
+    def test_a_read_only_backup_refused_for_permission_is_retried_after_clearing_the_bit(self, mocker: MockFixture, tmp_path: Path) -> None:
+        from trs_file_backup.backup import DeletionKind, delete_backup
+
+        path = _make_backup(tmp_path, "report.txt")
+        os.chmod(path, stat.S_IREAD)
+        real_unlink = Path.unlink
+        calls: list[bool] = []
+
+        def refuse_while_read_only(self: Path, missing_ok: bool = False) -> None:
+            writable = bool(os.stat(self).st_mode & stat.S_IWRITE)
+            calls.append(writable)
+            if not writable:
+                raise PermissionError(errno.EACCES, "Permission denied")
+            real_unlink(self, missing_ok=missing_ok)
+
+        mocker.patch.object(Path, "unlink", autospec=True, side_effect=refuse_while_read_only)
+
+        assert delete_backup(path).kind is DeletionKind.DELETED
+        assert calls == [False, True]
+        assert not path.exists()
+
+    def test_a_failed_retry_sets_the_read_only_bit_again(self, mocker: MockFixture, tmp_path: Path) -> None:
+        from trs_file_backup.backup import DeletionKind, delete_backup
+
+        path = _make_backup(tmp_path, "report.txt")
+        os.chmod(path, stat.S_IREAD)
+        unlink = mocker.patch.object(Path, "unlink", side_effect=PermissionError(errno.EACCES, "Permission denied"))
+
+        try:
+            result = delete_backup(path)
+            assert result.kind is DeletionKind.FAILED
+            assert result.reason == "Permission denied"
+            assert unlink.call_count == 2
+            assert not os.stat(path).st_mode & stat.S_IWRITE
+        finally:
+            os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
+
+    @pytest.mark.parametrize("read_only", [False, True], ids=["writable", "read-only"])
+    def test_no_retry_for_another_cause(self, mocker: MockFixture, tmp_path: Path, with_winerror: Callable[[OSError, int], OSError], read_only: bool) -> None:
+        from trs_file_backup.backup import delete_backup
+
+        path = _make_backup(tmp_path, "report.txt")
+        if read_only:
+            os.chmod(path, stat.S_IREAD)
+        error = with_winerror(PermissionError(errno.EACCES, "sharing violation"), 32) if read_only else PermissionError(errno.EACCES, "Permission denied")
+        unlink = mocker.patch.object(Path, "unlink", side_effect=error)
+        chmod = mocker.spy(os, "chmod")
+
+        try:
+            delete_backup(path)
+            assert unlink.call_count == 1
+            chmod.assert_not_called()
+        finally:
+            os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
+
+    def test_an_entry_that_is_no_regular_file_any_more_is_not_unlinked(self, mocker: MockFixture, tmp_path: Path) -> None:
+        from trs_file_backup.backup import DeletionKind, delete_backup
+
+        path = _make_backup(tmp_path, "report.txt")
+        # The listed backup was replaced by a symbolic link meanwhile; faked, so no symlink privilege is needed
+        mocker.patch("trs_file_backup.backup.os.lstat", return_value=Mock(st_mode=stat.S_IFLNK | 0o777))
+        unlink = mocker.patch.object(Path, "unlink")
+
+        result = delete_backup(path)
+
+        assert result.kind is DeletionKind.FAILED
+        assert result.reason == "not a regular file"
+        unlink.assert_not_called()
+
+    def test_a_failed_deletion_of_a_writable_file_leaves_it_writable(self, mocker: MockFixture, tmp_path: Path) -> None:
+        from trs_file_backup.backup import delete_backup
+
+        path = _make_backup(tmp_path, "report.txt")
+        mocker.patch.object(Path, "unlink", side_effect=OSError(errno.EIO, "Input/output error"))
+
+        delete_backup(path)
+
+        assert os.stat(path).st_mode & stat.S_IWRITE
+
+    def test_a_directory_is_never_deleted(self, tmp_path: Path) -> None:
+        from trs_file_backup.backup import DeletionKind, delete_backup
+
+        path = tmp_path / "report_2020_05_17__08_00_00.txt"
+        path.mkdir()
+
+        assert delete_backup(path).kind is DeletionKind.FAILED
+        assert path.is_dir()

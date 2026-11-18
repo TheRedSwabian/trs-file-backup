@@ -11,6 +11,7 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 
+from trs_file_backup.retention import ParsedBackup, group_backups
 from trs_file_backup.state import StateManager
 
 # ERROR_SHARING_VIOLATION and ERROR_LOCK_VIOLATION: Windows raises PermissionError with one of these for a locked file
@@ -197,3 +198,78 @@ class BackupManager:
             raise
 
         return destination_file
+
+
+def list_backup_groups(destination: Path) -> dict[str, list[ParsedBackup]]:
+    """List the backups in the destination directory, grouped by original file name (spec AC-8.6, AC-8.7).
+
+    Only a regular file is a candidate: directories and symbolic links are left out, without following a link.
+    A name that is no backup name is left out too, so the state file, backup.log, temporary and foreign files are never in the result (spec AC-8.8).
+
+    Raises:
+        OSError: If the directory cannot be listed.
+    """
+    names = []
+    with os.scandir(destination) as entries:
+        for entry in entries:
+            # An entry whose type cannot be read is no candidate: deleting too little is safe, deleting a wrong file is not
+            with contextlib.suppress(OSError):
+                if entry.is_file(follow_symlinks=False):
+                    names.append(entry.name)
+    return group_backups(names)
+
+
+class DeletionKind(Enum):
+    """Outcome of deleting one backup, which decides whether and how it is reported (spec AC-8.13)."""
+
+    DELETED = "deleted"
+    ALREADY_GONE = "already gone"
+    LOCKED = "locked"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True)
+class DeletionResult:
+    """Outcome of delete_backup; reason holds the cause of a failed deletion as AC-6.18 words it."""
+
+    kind: DeletionKind
+    reason: str = ""
+
+    @property
+    def counts_as_deleted(self) -> bool:
+        """True when the backup is gone: a backup already gone counts as deleted, because the goal is reached (spec AC-8.13)."""
+        return self.kind in (DeletionKind.DELETED, DeletionKind.ALREADY_GONE)
+
+
+def delete_backup(path: Path) -> DeletionResult:
+    """Delete one backup file and return the outcome; nothing is printed or logged here (spec AC-8.13).
+
+    The deletion is tried first: on POSIX a read-only file in a writable folder is deleted as it is,
+    while changing the mode of a file owned by another user would fail.
+    Only when the deletion fails for missing permission and the backup is read-only, the read-only bit is cleared and the deletion tried once more;
+    when that fails too, the bit is set again, and a failure to set it is ignored, because the failed deletion is reported anyway.
+    Anything but a regular file is never deleted, also when it took the place of a listed backup meanwhile.
+    """
+    try:
+        mode = os.lstat(path).st_mode
+        if not stat.S_ISREG(mode):
+            return DeletionResult(DeletionKind.FAILED, "not a regular file")
+        try:
+            path.unlink()
+        except PermissionError as error:
+            if mode & stat.S_IWRITE or classify_backup_error(error) is not BackupErrorKind.PERMISSION_DENIED:
+                raise
+            os.chmod(path, stat.S_IMODE(mode) | stat.S_IWRITE)
+            try:
+                path.unlink()
+            except OSError:
+                with contextlib.suppress(OSError):
+                    os.chmod(path, stat.S_IMODE(mode))
+                raise
+    except FileNotFoundError:
+        return DeletionResult(DeletionKind.ALREADY_GONE)
+    except OSError as error:
+        if classify_backup_error(error) is BackupErrorKind.LOCKED:
+            return DeletionResult(DeletionKind.LOCKED, backup_error_reason(error))
+        return DeletionResult(DeletionKind.FAILED, backup_error_reason(error))
+    return DeletionResult(DeletionKind.DELETED)
