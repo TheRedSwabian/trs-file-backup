@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v3.1.5 (2026-11-18)
+
+### Bug Fixes
+
+- **backup**: Report a failed backup by its cause
+  ([#25](https://github.com/TheRedSwabian/trs-file-backup/pull/25),
+  [`d122597`](https://github.com/TheRedSwabian/trs-file-backup/commit/d12259766c1321c77b0690577abacfb949e89775))
+
+
 ## v3.1.4 (2026-11-18)
 
 ### Bug Fixes
