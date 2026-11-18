@@ -23,7 +23,7 @@
 - 🔄 **Incremental Backups**: Only backup files that have changed
 - 🕐 **Timestamped Files**: Each backup uses format `filename_YYYY_MM_DD__HH_MM_SS.ext`
 - 👁️ **Watch Mode**: Continuously monitor directories and backup automatically
-- ⏱️ **Configurable Debounce**: Adjustable delay before backup (default: 2 seconds)
+- ⏱️ **Configurable Debounce**: Adjustable delay before a backup in watch mode (default: 2 seconds); `run` copies at once
 - 🎯 **Smart Exclusions**: Automatically skip hidden files
 - 🚫 **Custom Patterns**: Exclude specific files with wildcard patterns
 - 📊 **State Tracking**: Maintain backup history in `.backup_state.json` (stored in backup directory)
@@ -56,8 +56,8 @@ trs-file-backup watch --source ./myproject --destination ./backup
 # Exclude specific patterns
 trs-file-backup run --source ./myproject --destination ./backup --exclude "*.log" --exclude "temp_*"
 
-# Custom debounce delay (wait 5 seconds before backup)
-trs-file-backup run --source ./myproject --destination ./backup --debounce 5
+# Custom debounce delay (watch waits 5 seconds after the last change before the backup)
+trs-file-backup watch --source ./myproject --destination ./backup --debounce 5
 
 # Preview without copying
 trs-file-backup run --source ./myproject --destination ./backup --dry-run

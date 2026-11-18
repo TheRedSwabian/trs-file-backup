@@ -173,7 +173,7 @@ def init(
     debounce: int = typer.Option(
         2,
         "--debounce",
-        help="Seconds to wait before backup",
+        help="Seconds to wait in watch mode; run copies without waiting",
         min=0,
     ),
 ) -> None:
@@ -270,7 +270,7 @@ def run(
     debounce: int | None = typer.Option(
         None,
         "--debounce",
-        help="Seconds to wait before backup. Replaces the saved value; if not given, the saved value is used",
+        help="Seconds to wait in watch mode; run itself copies without waiting. Replaces the saved value; if not given, the saved value is used",
         min=0,
         show_default=DEBOUNCE_DEFAULT_HELP,
     ),
@@ -294,7 +294,7 @@ def run(
       # Exclude log files
       trs-file-backup run --source ./src --destination ./backup --exclude "*.log"
 
-      # Multiple exclusions with custom debounce
+      # Multiple exclusions; save a debounce delay of 5 seconds for watch
       trs-file-backup run --source ./src --destination ./backup --exclude "*.log" --exclude "temp_*" --debounce 5
 
       # Preview without copying
@@ -373,9 +373,6 @@ def run(
 
         for file in files_to_backup:
             try:
-                # Wait debounce time
-                time.sleep(debounce_seconds)
-
                 # Read the mtime before the copy: a write during the copy must stay "modified" for the next run
                 mtime = file.stat().st_mtime
                 timestamp = datetime.now()

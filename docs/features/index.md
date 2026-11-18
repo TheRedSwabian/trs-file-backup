@@ -20,7 +20,7 @@ file_backup.md
 - **Timestamped Filenames**: Each backup includes timestamp in format `filename_YYYY_MM_DD__HH_MM_SS.ext`
 - **Smart Exclusions**: Automatically excludes hidden files and subdirectories
 - **Custom Exclusion Patterns**: Support for wildcard patterns via `--exclude` parameter
-- **Configurable Debounce**: Adjustable delay before backup with `--debounce` parameter (default: 2 seconds)
+- **Configurable Debounce**: Adjustable delay before a backup in watch mode with `--debounce` parameter (default: 2 seconds); `run` copies at once
 - **State Tracking**: Maintains backup history in `.backup_state.json` (stored in backup directory)
 - **Activity Logging**: All operations logged to `backup.log` with timestamps and severity levels
 - **Dry-Run Mode**: Preview what would be backed up without copying files
