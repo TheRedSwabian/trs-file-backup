@@ -872,7 +872,11 @@ class TestConfigShow:
         assert "1) *.log" in result.output
         assert "2)" not in result.output
 
-    @pytest.mark.parametrize("command", [["config", "show"], ["config"]], ids=["show", "menu"])
+    @pytest.mark.parametrize(
+        "command",
+        [["config", "show"], ["config"], ["config", "show", "debounce"], ["config", "set", "retention.days", "7"]],
+        ids=["show", "menu", "show-key", "set"],
+    )
     def test_without_state_file_says_run_init_first_and_creates_nothing(self, mocker: MockFixture, tmp_path: Path, command: list[str]) -> None:
         from trs_file_backup.main import app
 
@@ -921,7 +925,11 @@ class TestConfigShow:
         assert result.exit_code == 0, result.output
         assert "1) *.log" in result.output
 
-    @pytest.mark.parametrize("command", [["config"], ["config", "show"]], ids=["menu", "show"])
+    @pytest.mark.parametrize(
+        "command",
+        [["config"], ["config", "show"], ["config", "show", "debounce"], ["config", "set", "debounce", "3"]],
+        ids=["menu", "show", "show-key", "set"],
+    )
     def test_missing_destination_is_a_usage_error(self, command: list[str]) -> None:
         from trs_file_backup.main import app
 
@@ -937,7 +945,8 @@ class TestConfigShow:
 
         assert result.exit_code == 0
         help_text = _help_output(result)
-        assert re.search(r"show\s+print the saved settings without asking anything", help_text)
+        assert re.search(r"show\s+print the saved settings, or only the value of one setting\.", help_text)
+        assert re.search(r"set\s+change one setting and save it at once\.", help_text)
         assert "--destination" in help_text
         assert "stop a running 'watch' and wait for a running 'run' to finish first" in help_text
 
@@ -1308,7 +1317,7 @@ class TestRetentionRulesInSettings:
             pytest.param(5, "retention = 5", id="not-an-object"),
         ],
     )
-    @pytest.mark.parametrize("command", ["run", "watch", "config show", "config without terminal", "config menu"])
+    @pytest.mark.parametrize("command", ["run", "watch", "config show", "config show key", "config set", "config without terminal", "config menu"])
     def test_invalid_stored_rule_stops_the_command_before_anything_is_written(self, mocker: MockFixture, tmp_path: Path, command: str, retention: object, key: str) -> None:
         from trs_file_backup.main import app
 
@@ -1324,6 +1333,8 @@ class TestRetentionRulesInSettings:
             "run": ["run", "--source", str(source), "--destination", str(dest)],
             "watch": ["watch", "--source", str(source), "--destination", str(dest)],
             "config show": ["config", "show", "--destination", str(dest)],
+            "config show key": ["config", "show", "debounce", "--destination", str(dest)],
+            "config set": ["config", "set", "debounce", "3", "--destination", str(dest)],
             "config without terminal": ["config", "--destination", str(dest)],
             "config menu": ["config", "--destination", str(dest)],
         }[command]
@@ -1623,6 +1634,267 @@ class TestConfigMenuRetention:
 
         assert result.exit_code == 0, result.output
         assert "Retention rules: hours 0, days 12, weeks 0, months 0\n" in _last_session_header(dest)
+
+
+# The rules before a config set: months is 3, so that setting it to -1 is a change
+RULES_BEFORE_SET = {**EXAMPLE_RULES, "months": 3}
+
+
+class TestConfigShowAndSetKey:
+    """config show KEY prints one value and config set KEY VALUE saves one value at once (spec AC-7.13, AC-7.15, AC-7.18, AC-7.19)."""
+
+    KEYS_MESSAGE = "Valid keys: debounce, retention.hours, retention.days, retention.weeks, retention.months."
+
+    @staticmethod
+    def _with_rules(tmp_path: Path) -> Path:
+        _, dest = _initialized(tmp_path, "--debounce", "5")
+        _store_retention(dest, RULES_BEFORE_SET)
+        return dest
+
+    @staticmethod
+    def _config(dest: Path, *arguments: str) -> Result:
+        from trs_file_backup.main import app
+
+        return runner.invoke(app, ["config", *arguments, "--destination", str(dest)])
+
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [("debounce", "5"), ("retention.hours", "24"), ("retention.days", "7"), ("retention.weeks", "4"), ("retention.months", "3")],
+    )
+    def test_show_key_prints_only_the_value(self, tmp_path: Path, key: str, value: str) -> None:
+        dest = self._with_rules(tmp_path)
+        state_before = _state_bytes(dest)
+        log_before = (dest / "backup.log").read_bytes()
+
+        result = self._config(dest, "show", key)
+
+        assert result.exit_code == 0, result.output
+        assert result.output == f"{value}\n"
+        assert _state_bytes(dest) == state_before
+        assert (dest / "backup.log").read_bytes() == log_before
+
+    def test_show_key_prints_minus_one_for_no_limit(self, tmp_path: Path) -> None:
+        _, dest = _initialized(tmp_path)
+        _store_retention(dest, EXAMPLE_RULES)
+
+        result = self._config(dest, "show", "retention.months")
+
+        assert result.exit_code == 0, result.output
+        assert result.output == "-1\n"
+
+    def test_show_key_after_destination(self, tmp_path: Path) -> None:
+        from trs_file_backup.main import app
+
+        dest = self._with_rules(tmp_path)
+
+        result = runner.invoke(app, ["config", "--destination", str(dest), "show", "retention.days"])
+
+        assert result.exit_code == 0, result.output
+        assert result.output == "7\n"
+
+    @pytest.mark.parametrize("key", ["retention", "Debounce", "retention.hourz", "hours", "exclude", "retention.däys"])
+    def test_show_unknown_key_names_the_valid_keys(self, tmp_path: Path, key: str) -> None:
+        dest = self._with_rules(tmp_path)
+
+        result = self._config(dest, "show", key)
+
+        assert result.exit_code == 1
+        assert result.output.startswith("Error: unknown key ")
+        assert self.KEYS_MESSAGE in " ".join(result.output.split())
+        result.output.encode("ascii")
+
+    @pytest.mark.parametrize(
+        ("key", "value", "old", "change"),
+        [
+            ("debounce", "0", 5, "debounce delay 5 -> 0 seconds"),
+            ("debounce", "12", 5, "debounce delay 5 -> 12 seconds"),
+            ("retention.hours", "48", 24, "retention.hours 24 -> 48"),
+            ("retention.days", "12", 7, "retention.days 7 -> 12"),
+            ("retention.weeks", "0", 4, "retention.weeks 4 -> 0"),
+            ("retention.months", "-1", 3, "retention.months 3 -> -1"),
+            ("retention.months", "6", 3, "retention.months 3 -> 6"),
+        ],
+    )
+    def test_set_saves_logs_and_prints_the_note(self, tmp_path: Path, key: str, value: str, old: int, change: str) -> None:
+        from trs_file_backup.main import STOP_WATCH_NOTE
+
+        dest = self._with_rules(tmp_path)
+
+        result = self._config(dest, "set", key, value)
+
+        assert result.exit_code == 0, result.output
+        if key == "debounce":
+            assert _saved_settings(dest)[1] == int(value)
+            assert _saved_retention(dest) == RULES_BEFORE_SET
+        else:
+            assert _saved_settings(dest)[1] == 5
+            assert _saved_retention(dest) == {**RULES_BEFORE_SET, key.removeprefix("retention."): int(value)}
+        session = _last_session_header(dest)
+        assert "Command: config\n" in session
+        assert f"Settings changed: {change}\n" in session
+        assert "Session Ended" in session
+        lines = result.output.splitlines()
+        assert lines[0] == STOP_WATCH_NOTE
+        expected = f"Saved {key} = {value} to {dest / '.backup_state.json'}. The change takes effect at the next start of 'run', 'watch' or 'cleanup'."
+        # Rich may wrap the line at the console width, so compare without whitespace
+        assert re.sub(r"\s", "", "".join(lines[1:])) == re.sub(r"\s", "", expected)
+        result.output.encode("ascii")
+
+    def test_set_after_destination_and_with_leading_zeros(self, tmp_path: Path) -> None:
+        from trs_file_backup.main import app
+
+        dest = self._with_rules(tmp_path)
+
+        result = runner.invoke(app, ["config", "--destination", str(dest), "set", "retention.days", "012"])
+
+        assert result.exit_code == 0, result.output
+        assert _saved_retention(dest) == {**RULES_BEFORE_SET, "days": 12}
+        assert "Saved retention.days = 12 to " in result.output
+
+    def test_set_keeps_patterns_source_and_tracked_files(self, tmp_path: Path) -> None:
+        from trs_file_backup.main import app
+
+        source, dest = _initialized(tmp_path, "--exclude", "*.log")
+        (source / "a.txt").write_text("a")
+        runner.invoke(app, ["run", "--source", str(source), "--destination", str(dest)])
+        files_before = json.loads(_state_bytes(dest))["files"]
+
+        result = self._config(dest, "set", "retention.days", "3")
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(_state_bytes(dest))
+        assert files_before
+        assert data["files"] == files_before
+        assert data["excluded_patterns"] == [".backup_state.json", "*.log"]
+        assert data["source_path"] == str(source)
+
+    @pytest.mark.parametrize(("key", "value"), [("debounce", "5"), ("retention.hours", "24"), ("retention.months", "3"), ("retention.days", "007")])
+    def test_set_the_saved_value_writes_nothing(self, tmp_path: Path, key: str, value: str) -> None:
+        dest = self._with_rules(tmp_path)
+        state_before = _state_bytes(dest)
+        log_before = (dest / "backup.log").read_bytes()
+
+        result = self._config(dest, "set", key, value)
+
+        assert result.exit_code == 0, result.output
+        assert result.output == f"{key} is already {int(value)}; nothing was written.\n"
+        assert _state_bytes(dest) == state_before
+        assert (dest / "backup.log").read_bytes() == log_before
+
+    def test_set_minus_one_when_already_saved_writes_nothing(self, tmp_path: Path) -> None:
+        _, dest = _initialized(tmp_path)
+        _store_retention(dest, EXAMPLE_RULES)
+        state_before = _state_bytes(dest)
+
+        result = self._config(dest, "set", "retention.months", "-1")
+
+        assert result.exit_code == 0, result.output
+        assert result.output == "retention.months is already -1; nothing was written.\n"
+        assert _state_bytes(dest) == state_before
+
+    @pytest.mark.parametrize("key", ["retention", "Debounce", "retention.hourz", "exclude", "retention.däys"])
+    def test_set_unknown_key_names_the_valid_keys_and_writes_nothing(self, tmp_path: Path, key: str) -> None:
+        dest = self._with_rules(tmp_path)
+        state_before = _state_bytes(dest)
+        log_before = (dest / "backup.log").read_bytes()
+
+        result = self._config(dest, "set", key, "3")
+
+        assert result.exit_code == 1
+        assert result.output.startswith("Error: unknown key ")
+        assert self.KEYS_MESSAGE in " ".join(result.output.split())
+        assert "Stop a running" not in result.output
+        assert _state_bytes(dest) == state_before
+        assert (dest / "backup.log").read_bytes() == log_before
+        result.output.encode("ascii")
+
+    @pytest.mark.parametrize(
+        ("key", "value", "allowed"),
+        [
+            ("debounce", "-1", "Valid values: a whole number of 0 or more (seconds)."),
+            ("debounce", "abc", "Valid values: a whole number of 0 or more (seconds)."),
+            ("debounce", "1.5", "Valid values: a whole number of 0 or more (seconds)."),
+            ("retention.days", "-2", "Valid values: 0 or more, or -1 (no limit)."),
+            ("retention.hours", "+5", "Valid values: 0 or more, or -1 (no limit)."),
+            ("retention.weeks", "1_000", "Valid values: 0 or more, or -1 (no limit)."),
+            ("retention.weeks", " 5", "Valid values: 0 or more, or -1 (no limit)."),
+            ("retention.months", "", "Valid values: 0 or more, or -1 (no limit)."),
+            ("retention.months", chr(0xFF11) + chr(0xFF12), "Valid values: 0 or more, or -1 (no limit)."),
+            ("retention.days", "9" * 5000, "Valid values: 0 or more, or -1 (no limit)."),
+        ],
+        ids=["debounce-negative", "debounce-text", "debounce-decimal", "rule-below-minus-one", "plus-sign", "underscore", "space", "empty", "fullwidth-digits", "too-long"],
+    )
+    def test_set_invalid_value_names_the_valid_values_and_writes_nothing(self, tmp_path: Path, key: str, value: str, allowed: str) -> None:
+        dest = self._with_rules(tmp_path)
+        state_before = _state_bytes(dest)
+        log_before = (dest / "backup.log").read_bytes()
+
+        result = self._config(dest, "set", key, value)
+
+        assert result.exit_code == 1, result.output
+        assert result.output.startswith("Error: invalid value ")
+        assert f"for {key}. {allowed}" in " ".join(result.output.split())
+        assert "Stop a running" not in result.output
+        assert _state_bytes(dest) == state_before
+        assert (dest / "backup.log").read_bytes() == log_before
+        result.output.encode("ascii")
+
+    def test_set_when_the_state_file_cannot_be_written(self, mocker: MockFixture, tmp_path: Path) -> None:
+        dest = self._with_rules(tmp_path)
+        state_before = _state_bytes(dest)
+        mocker.patch("trs_file_backup.state.StateManager.save", side_effect=PermissionError(errno.EACCES, "Permission denied"))
+
+        result = self._config(dest, "set", "retention.days", "3")
+
+        assert result.exit_code == 1
+        assert result.output.startswith("Error: cannot save ")
+        assert "Stop a running" not in result.output
+        assert _state_bytes(dest) == state_before
+
+    def test_set_with_an_unwritable_log_says_the_settings_were_saved(self, mocker: MockFixture, tmp_path: Path) -> None:
+        dest = self._with_rules(tmp_path)
+        mocker.patch("trs_file_backup.main.BackupLogger", side_effect=PermissionError("backup.log is locked"))
+
+        result = self._config(dest, "set", "retention.days", "3")
+
+        assert result.exit_code == 1
+        assert result.output.startswith("Error: ")
+        assert "settings were saved" in result.output.lower()
+        assert "backup.log" in result.output
+        assert "Traceback" not in result.output
+        assert _saved_retention(dest) == {**RULES_BEFORE_SET, "days": 3}
+
+    def test_config_help_lists_the_keys_and_the_set_examples(self) -> None:
+        from trs_file_backup.main import app
+
+        result = runner.invoke(app, ["config", "--help"], env={"COLUMNS": "400"})
+
+        assert result.exit_code == 0
+        help_text = click.unstyle(result.output)
+        assert "Keys for 'show KEY' and 'set KEY VALUE':" in help_text
+        # One key per line, each with its meaning (the help must not join the key table into one paragraph)
+        for key, meaning in [
+            ("debounce", r"Seconds that watch waits before a backup \(0 or more\)"),
+            ("retention.hours", "Keep every backup younger than N hours"),
+            ("retention.days", "Keep the last backup per day for N days"),
+            ("retention.weeks", "Keep the last backup per week for N weeks"),
+            ("retention.months", "Keep the last backup per month for N months"),
+        ]:
+            assert re.search(rf"^\W*{re.escape(key)} +{meaning}\W*$", help_text, re.MULTILINE), key
+        assert "A retention rule is 0 (off), a positive number, or -1 (no limit)." in help_text
+        assert "trs-file-backup config show retention.days --destination ./backup" in help_text
+        assert "trs-file-backup config set retention.days 12 --destination ./backup" in help_text
+        assert "trs-file-backup config set retention.months -1 --destination ./backup" in help_text
+
+    def test_set_help_and_show_help(self) -> None:
+        from trs_file_backup.main import app
+
+        show_help = _help_output(runner.invoke(app, ["config", "show", "--help"], env={"COLUMNS": "400"}))
+        set_help = _help_output(runner.invoke(app, ["config", "set", "--help"], env={"COLUMNS": "400"}))
+
+        assert "print the saved settings, or only the value of one setting." in show_help
+        assert "change one setting and save it at once." in set_help
+        assert "trs-file-backup config set retention.months -1 --destination ./backup" in set_help
 
 
 class TestDestinationIsTheTruth:

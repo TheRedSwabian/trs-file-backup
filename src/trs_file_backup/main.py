@@ -2,6 +2,7 @@
 
 import io
 import os
+import re
 import sys
 import threading
 import time
@@ -723,7 +724,7 @@ DESTINATION_HELP = "Destination backup directory that holds the state file"
 
 @dataclass
 class SettingsDraft:
-    """The settings the config menu shows and edits: the debounce delay, the user patterns without the state file pattern, and the retention rules."""
+    """The settings that the config menu and config set change: the debounce delay, the user patterns without the state file pattern, and the retention rules."""
 
     debounce_seconds: int
     patterns: list[str]
@@ -910,8 +911,8 @@ def _changes(before: SettingsDraft, after: SettingsDraft) -> list[str]:
     return changes
 
 
-def _save(destination: Path, draft: SettingsDraft) -> None:
-    """Write the draft through the atomic state file update and log it (spec AC-7.10, AC-7.13).
+def _save(destination: Path, draft: SettingsDraft) -> Path:
+    """Write the draft through the atomic state file update and log it (spec AC-7.10, AC-7.13); return the state file.
 
     The state file is read again first, so that the tracked files a backup wrote meanwhile are kept.
     """
@@ -942,7 +943,7 @@ def _save(destination: Path, draft: SettingsDraft) -> None:
             logger.close()
     except OSError as e:
         _error(f"the settings were saved to {state.state_file_path}, but {destination / 'backup.log'} could not be written: {e}")
-    _say(f"Saved to {state.state_file_path}. The changes take effect at the next start of 'run', 'watch' or 'cleanup'.")
+    return state.state_file_path
 
 
 def _run_menu(destination: Path, state: StateManager) -> None:
@@ -970,7 +971,8 @@ def _run_menu(destination: Path, state: StateManager) -> None:
                 case "5":
                     _change_retention(draft)
                 case "s":
-                    _save(destination, draft)
+                    state_file = _save(destination, draft)
+                    _say(f"Saved to {state_file}. The changes take effect at the next start of 'run', 'watch' or 'cleanup'.")
                     return
                 case _:
                     if draft == saved or Confirm.ask("Discard the unsaved changes?", default=False, console=console):
@@ -981,6 +983,59 @@ def _run_menu(destination: Path, state: StateManager) -> None:
         _say("Input ended, nothing saved.")
         if draft != saved:
             raise typer.Exit(code=1) from None
+
+
+DEBOUNCE_KEY = "debounce"
+RETENTION_KEY_PREFIX = "retention."
+# The keys of config show KEY and config set KEY VALUE (spec AC-7.18)
+SETTING_KEYS = (DEBOUNCE_KEY, *(f"{RETENTION_KEY_PREFIX}{name}" for name in RULE_FIELDS))
+# ASCII digits with an optional leading minus sign (spec AC-7.19); int() alone would also take "+5", " 5", "1_000" and other Unicode digits
+_WHOLE_NUMBER = re.compile(r"-?[0-9]+")
+
+
+def _checked_key(key: str) -> str:
+    """Return key when it names a setting, else end with exit code 1 and name the valid keys (spec AC-7.18, AC-7.19)."""
+    if key not in SETTING_KEYS:
+        # ascii() keeps the output ASCII for any key the user typed (spec AC-7.15)
+        _error(f"unknown key {key!a}. Valid keys: {', '.join(SETTING_KEYS)}.")
+    return key
+
+
+def _checked_value(key: str, text: str) -> int:
+    """Return text as the new value of key, else end with exit code 1 and name the valid values (spec AC-7.19).
+
+    The text must be ASCII digits with an optional leading minus sign; the range is the one the menu checks (spec AC-7.5, AC-8.2).
+    """
+    is_debounce = key == DEBOUNCE_KEY
+    value = None
+    if _WHOLE_NUMBER.fullmatch(text):
+        try:
+            value = int(text)
+        except ValueError:  # more digits than int() converts
+            value = None
+    if value is None or not (value >= 0 if is_debounce else is_valid_rule_value(value)):
+        allowed = "a whole number of 0 or more (seconds)" if is_debounce else "0 or more, or -1 (no limit)"
+        _error(f"invalid value {text!a} for {key}. Valid values: {allowed}.")
+    return value
+
+
+def _setting(settings: SettingsDraft, key: str) -> int:
+    if key == DEBOUNCE_KEY:
+        return settings.debounce_seconds
+    return int(getattr(settings.retention, key.removeprefix(RETENTION_KEY_PREFIX)))
+
+
+def _with_setting(settings: SettingsDraft, key: str, value: int) -> SettingsDraft:
+    if key == DEBOUNCE_KEY:
+        return replace(settings, debounce_seconds=value)
+    return replace(settings, retention=replace(settings.retention, **{key.removeprefix(RETENTION_KEY_PREFIX): value}))
+
+
+def _subcommand_destination(ctx: typer.Context, destination: Path | None) -> Path:
+    """Take --destination from the subcommand, else from config, where it may stand before show and set."""
+    if destination is None and ctx.parent is not None:
+        destination = ctx.parent.params.get("destination")
+    return _required_destination(destination)
 
 
 @config_app.callback(invoke_without_command=True)
@@ -1003,6 +1058,14 @@ def config(
     When input does not come from a terminal, it prints the settings like 'config show'.
     The source directory cannot be changed here.
 
+    Keys for 'show KEY' and 'set KEY VALUE':
+      debounce          Seconds that watch waits before a backup (0 or more)
+      retention.hours   Keep every backup younger than N hours
+      retention.days    Keep the last backup per day for N days
+      retention.weeks   Keep the last backup per week for N weeks
+      retention.months  Keep the last backup per month for N months
+      A retention rule is 0 (off), a positive number, or -1 (no limit).
+
     Examples:
 
       # Open the menu
@@ -1010,6 +1073,13 @@ def config(
 
       # Print the saved settings only
       trs-file-backup config show --destination ./backup
+
+      # Print one value, then change it
+      trs-file-backup config show retention.days --destination ./backup
+      trs-file-backup config set retention.days 12 --destination ./backup
+
+      # Keep one backup per month forever
+      trs-file-backup config set retention.months -1 --destination ./backup
 
     Note:
       Stop a running 'watch' and wait for a running 'run' to finish first: both write their own
@@ -1030,6 +1100,7 @@ def config(
 @config_app.command("show")
 def config_show(
     ctx: typer.Context,
+    key: str | None = typer.Argument(None, metavar="KEY", help="Print only the value of this setting (see the keys in 'config --help')", show_default=False),
     destination: Path | None = typer.Option(  # noqa: B008
         None,
         "--destination",
@@ -1039,18 +1110,72 @@ def config_show(
         resolve_path=True,
     ),
 ) -> None:
-    """Print the saved settings without asking anything.
+    """Print the saved settings, or only the value of one setting.
+
+    Nothing is asked and nothing is written.
 
     Examples:
 
       # Print the saved settings
       trs-file-backup config show --destination C:\\Backup\\MyApp
+
+      # Print only the value, for example 12
+      trs-file-backup config show retention.days --destination ./backup
     """
-    if destination is None and ctx.parent is not None:
-        destination = ctx.parent.params.get("destination")
-    state = _load_saved_state(_required_destination(destination))
+    target = _subcommand_destination(ctx, destination)
+    if key is not None:
+        _checked_key(key)
+    state = _load_saved_state(target)
     saved = SettingsDraft.of(state)
+    if key is not None:
+        _say(str(_setting(saved, key)))
+        return
     _print_settings(state.source_path, saved, saved)
+
+
+# ignore_unknown_options lets a negative VALUE such as -1 through without "--" (spec AC-7.19)
+@config_app.command("set", context_settings={"ignore_unknown_options": True})
+def config_set(
+    ctx: typer.Context,
+    key: str = typer.Argument(..., metavar="KEY", help="The setting to change (see the keys in 'config --help')", show_default=False),
+    value: str = typer.Argument(..., metavar="VALUE", help="The new value, a whole number that the key allows", show_default=False),
+    destination: Path | None = typer.Option(  # noqa: B008
+        None,
+        "--destination",
+        help=DESTINATION_HELP,
+        file_okay=False,
+        dir_okay=True,
+        resolve_path=True,
+    ),
+) -> None:
+    """Change one setting and save it at once.
+
+    The value is checked as the menu checks it: debounce is 0 or more,
+    a retention rule is 0 (off), a positive number, or -1 (no limit).
+    The change is logged in backup.log.
+
+    Examples:
+
+      # Keep the last backup per day for 12 days
+      trs-file-backup config set retention.days 12 --destination ./backup
+
+      # Keep one backup per month forever
+      trs-file-backup config set retention.months -1 --destination ./backup
+
+    Note:
+      Stop a running 'watch' and wait for a running 'run' to finish first: both write their own
+      settings back to the state file and would overwrite your changes.
+      Saved changes take effect at the next start of 'run', 'watch' or 'cleanup'.
+    """
+    target = _subcommand_destination(ctx, destination)
+    new_value = _checked_value(_checked_key(key), value)
+    saved = SettingsDraft.of(_load_saved_state(target))
+    if _setting(saved, key) == new_value:
+        _say(f"{key} is already {new_value}; nothing was written.")
+        return
+    state_file = _save(target, _with_setting(saved, key, new_value))
+    _say(STOP_WATCH_NOTE)
+    _say(f"Saved {key} = {new_value} to {state_file}. The change takes effect at the next start of 'run', 'watch' or 'cleanup'.")
 
 
 def replace_unencodable(stream: TextIO | None) -> None:
