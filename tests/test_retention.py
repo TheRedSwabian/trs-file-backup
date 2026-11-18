@@ -374,3 +374,49 @@ class TestSelectBackupsToKeep:
         assert select_backups_to_keep([first, second], RetentionRules(days=1), T) == {second}
         assert select_backups_to_keep([second, first], RetentionRules(days=1), T) == {second}
         assert select_backups_to_keep([first, second], RetentionRules(hours=1), T) == {first, second}
+
+
+class TestPlanRetention:
+    """Splitting the backups of one original file into kept and deleted ones, for run, watch and cleanup (spec AC-8.1, AC-8.14)."""
+
+    NOW = datetime(2026, 3, 15, 12, 0, 0)
+
+    def test_splits_into_keep_and_delete_newest_first(self) -> None:
+        from trs_file_backup.retention import plan_retention
+
+        backups = [backup("r.txt", self.NOW - timedelta(days=offset)) for offset in (3, 0, 1, 2)]
+
+        plan = plan_retention(backups, RetentionRules(days=2), self.NOW)
+
+        assert [item.timestamp for item in plan.keep] == [self.NOW, self.NOW - timedelta(days=1)]
+        assert [item.timestamp for item in plan.delete] == [self.NOW - timedelta(days=2), self.NOW - timedelta(days=3)]
+
+    def test_all_rules_zero_deletes_nothing(self) -> None:
+        from trs_file_backup.retention import plan_retention
+
+        backups = [backup("r.txt", self.NOW - timedelta(days=offset)) for offset in range(5)]
+
+        plan = plan_retention(backups, RetentionRules(), self.NOW)
+
+        assert plan.delete == []
+        assert len(plan.keep) == 5
+
+    def test_always_keep_keeps_that_backup_against_the_rules(self) -> None:
+        from trs_file_backup.retention import plan_retention
+
+        just_made = backup("r.txt", self.NOW)
+        future = backup("r.txt", self.NOW + timedelta(days=400))
+        older = backup("r.txt", self.NOW - timedelta(days=3))
+
+        plan = plan_retention([older, just_made, future], RetentionRules(days=1), self.NOW, always_keep=just_made.name)
+
+        assert plan.keep == [future, just_made]
+        assert plan.delete == [older]
+
+    def test_no_backups_gives_an_empty_plan(self) -> None:
+        from trs_file_backup.retention import plan_retention
+
+        plan = plan_retention([], RetentionRules(days=1), self.NOW)
+
+        assert plan.keep == []
+        assert plan.delete == []

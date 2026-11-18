@@ -146,6 +146,22 @@ class BackupLogger:
         """
         self.logger.warning(f"File locked, skipping: {filename}")
 
+    def log_backup_deleted(self, backup_name: str) -> None:
+        """Log an old backup that the retention rules deleted (spec AC-8.13).
+
+        Args:
+            backup_name: Name of the deleted backup
+        """
+        self.logger.info(f"Deleted old backup: {backup_name}")
+
+    def log_backup_locked(self, backup_name: str) -> None:
+        """Log an old backup that is locked and therefore not deleted (spec AC-8.13).
+
+        Args:
+            backup_name: Name of the locked backup
+        """
+        self.logger.warning(f"Backup locked, not deleted: {backup_name}")
+
     def log_error(self, message: str) -> None:
         """Log error message.
 

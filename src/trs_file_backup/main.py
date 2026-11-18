@@ -1,5 +1,6 @@
 """Main CLI application for trs-file-backup."""
 
+import contextlib
 import io
 import os
 import re
@@ -19,10 +20,19 @@ from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
 from trs_file_backup import __version__
-from trs_file_backup.backup import BackupErrorKind, BackupManager, backup_error_reason, classify_backup_error
+from trs_file_backup.backup import (
+    BackupErrorKind,
+    BackupManager,
+    DeletionKind,
+    DeletionResult,
+    backup_error_reason,
+    classify_backup_error,
+    delete_backup,
+    list_backup_groups,
+)
 from trs_file_backup.logger import BackupLogger
 from trs_file_backup.patterns import pattern_problem
-from trs_file_backup.retention import NO_LIMIT, RULE_FIELDS, RetentionRules, is_valid_rule_value
+from trs_file_backup.retention import NO_LIMIT, RULE_FIELDS, ParsedBackup, RetentionRules, is_valid_rule_value, parse_backup_name, plan_retention
 from trs_file_backup.state import InvalidRetentionRuleError, StateManager
 
 app = typer.Typer(
@@ -375,6 +385,7 @@ def run(
         console.print("Backing up files...")
         backed_up_count = 0
         failed_count = 0
+        retention = RetentionApplier(destination, state.retention, logger, list_once=True, indent="  ")
 
         for file in files_to_backup:
             try:
@@ -394,6 +405,9 @@ def run(
             except OSError as e:
                 report_backup_error(logger, file.name, e, indent="  ")
                 failed_count += 1
+            else:
+                # Outside the backup's error guard: retention has its own and never fails the backup (spec AC-8.11)
+                retention.apply(file.name, backup_path.name)
 
         # Save updated state
         state.save()
@@ -431,6 +445,113 @@ def report_backup_error(logger: BackupLogger, name: str, error: OSError, indent:
             console.print(Text.assemble(indent, ("ERROR", "red"), f" {message}"))
 
 
+def report_deletion(logger: BackupLogger, name: str, result: DeletionResult, indent: str = "") -> None:
+    """Print and log the outcome of deleting the backup name; a backup already gone is not reported (spec AC-8.13)."""
+    match result.kind:
+        case DeletionKind.DELETED:
+            logger.log_backup_deleted(name)
+            console.print(Text.assemble(indent, f"Deleted old backup: {name}"))
+        case DeletionKind.LOCKED:
+            logger.log_backup_locked(name)
+            console.print(Text.assemble(indent, ("WARNING", "yellow"), f" Backup locked, not deleted: {name}"))
+        case DeletionKind.FAILED:
+            message = f"Cannot delete backup: {name} ({result.reason})"
+            logger.log_error(message)
+            console.print(Text.assemble(indent, ("ERROR", "red"), f" {message}"))
+        case DeletionKind.ALREADY_GONE:
+            pass
+
+
+def error_reason(error: Exception) -> str:
+    """Return the reason of an error: for an OS error as AC-6.18 words it, else its message, else the name of its class."""
+    if isinstance(error, OSError):
+        return backup_error_reason(error)
+    return str(error) or type(error).__name__
+
+
+class RetentionApplier:
+    """Apply the retention rules to the backups of a source file right after its backup (spec AC-8.9 to AC-8.13).
+
+    run uses one applier with list_once=True: it lists the destination directory at most once, adds each new backup to that list itself,
+    and after a failed listing deletes nothing more (spec AC-8.10). watch uses list_once=False and lists each time.
+    When all rules are 0, nothing is listed or deleted (spec AC-8.3).
+    """
+
+    def __init__(self, destination: Path, rules: RetentionRules, logger: BackupLogger, *, list_once: bool, indent: str = "") -> None:
+        """Initialize the applier.
+
+        Args:
+            destination: Destination directory that holds the backups
+            rules: Retention rules to apply
+            logger: BackupLogger instance
+            list_once: True to list the destination directory only once (run), False to list it each time (watch)
+            indent: Text printed before each console line
+        """
+        self.destination = destination
+        self.rules = rules
+        self.logger = logger
+        self.list_once = list_once
+        self.indent = indent
+        self._groups: dict[str, list[ParsedBackup]] | None = None
+        self._listing_failed = False
+
+    def apply(self, original: str, new_backup: str) -> None:
+        """Delete the backups of the source file original that no rule keeps, after its backup new_backup is complete; new_backup is always kept.
+
+        Every failure is reported and none is raised, so retention never fails the backup and never ends watch (spec AC-8.11).
+        """
+        if self.rules.is_off or self._listing_failed:
+            return
+        try:
+            groups = self._listing(new_backup)
+            if groups is None:
+                return
+            # The backup just made holds the current state of the file and is never deleted (spec AC-8.9)
+            plan = plan_retention(groups.get(original, []), self.rules, datetime.now(), always_keep=new_backup)
+            remaining = list(plan.keep)
+            for backup in plan.delete:
+                if not self._delete(backup.name):
+                    remaining.append(backup)
+            groups[original] = remaining
+        except Exception as error:
+            # Last resort: even a failed report must not end watch
+            with contextlib.suppress(Exception):
+                self._error(f"Retention failed for {original}: {error_reason(error)}")
+
+    def _listing(self, new_backup: str) -> dict[str, list[ParsedBackup]] | None:
+        """Return the backups grouped by original file name, with new_backup in its group, or None after a failed listing."""
+        groups = self._groups
+        if groups is None:
+            try:
+                groups = list_backup_groups(self.destination)
+            except Exception as error:
+                self._error(f"Cannot list backups in {self.destination}: {error_reason(error)}")
+                self._listing_failed = self.list_once
+                return None
+            if self.list_once:
+                self._groups = groups
+        parsed = parse_backup_name(new_backup)
+        if parsed is not None:
+            group = groups.setdefault(parsed.original, [])
+            if all(item.name != parsed.name for item in group):
+                group.append(parsed)
+        return groups
+
+    def _delete(self, name: str) -> bool:
+        """Delete the backup name, report the outcome, and return True when it is gone (spec AC-8.13)."""
+        try:
+            result = delete_backup(self.destination / name)
+        except Exception as error:
+            self._error(f"Cannot delete backup: {name} ({error_reason(error)})")
+            return False
+        report_deletion(self.logger, name, result, self.indent)
+        return result.counts_as_deleted
+
+    def _error(self, message: str) -> None:
+        self.logger.log_error(message)
+        console.print(Text.assemble(self.indent, ("ERROR", "red"), f" {message}"))
+
+
 class BackupEventHandler(FileSystemEventHandler):
     """Handler for file system events in watch mode."""
 
@@ -440,6 +561,8 @@ class BackupEventHandler(FileSystemEventHandler):
         state: StateManager,
         logger: BackupLogger,
         debounce_seconds: int,
+        *,
+        retention: RetentionRules | None = None,
     ):
         """Initialize event handler.
 
@@ -448,9 +571,11 @@ class BackupEventHandler(FileSystemEventHandler):
             state: StateManager instance
             logger: BackupLogger instance
             debounce_seconds: Debounce delay in seconds
+            retention: The retention rules watch started with, kept for the whole session (spec AC-8.15); None means all rules 0
         """
         super().__init__()
         self.backup_manager = backup_manager
+        self.retention = RetentionApplier(backup_manager.destination_path, retention or RetentionRules(), logger, list_once=False)
         self.state = state
         self.logger = logger
         self.debounce_seconds = debounce_seconds
@@ -560,6 +685,9 @@ class BackupEventHandler(FileSystemEventHandler):
             except OSError as e:
                 report_backup_error(self.logger, file_path.name, e)
                 self._remove_pending(file_path, event_time)
+            else:
+                # Outside the backup's error guard: retention has its own and never ends watch (spec AC-8.11)
+                self.retention.apply(file_path.name, backup_path.name)
 
     def _save_state(self) -> None:
         """Save the state file; print and log a failure instead of raising it (spec AC-5.11)."""
@@ -681,6 +809,7 @@ def watch(
             state=state,
             logger=logger,
             debounce_seconds=debounce_seconds,
+            retention=state.retention,
         )
 
         # Start observer

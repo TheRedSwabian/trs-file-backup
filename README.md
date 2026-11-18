@@ -156,6 +156,8 @@ Use `trs-file-backup COMMAND --help` for detailed information on each command.
 - Retention compares file names case-sensitively:
   after `report.txt` is renamed to `Report.txt`, the backups of each name are thinned out separately,
   and each name keeps its newest backup; see KL-3 in the same section.
+- Backup names carry local time, so around a change of daylight saving time retention can misjudge the age or order of backups by one hour;
+  `run` and `watch` never delete the backup they have just made, but `cleanup` can hit this case; see KL-4 in the same section.
 
 ## Contributing
 

@@ -7,8 +7,10 @@ import io
 import json
 import os
 import re
+import stat
 import sys
 from collections.abc import Callable
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 from unittest.mock import Mock, patch
@@ -2960,3 +2962,521 @@ class TestMainApp:
         assert result.exit_code == 0
         assert re.search(r"--exclude\s+pattern\b", _help_output(result))
         assert "list[str]" not in _help_output(result)
+
+
+OLD_TIME = datetime(2020, 5, 17, 8, 0, 0)
+DAYS_ONE = {**ALL_RULES_OFF, "days": 1}
+
+
+def _old_backups(dest: Path, original: str, count: int = 2) -> list[Path]:
+    """Create count backups of original from 2020 in dest, one day apart, and return them."""
+    from trs_file_backup.backup import BackupManager
+
+    dest.mkdir(exist_ok=True)
+    paths = []
+    for offset in range(count):
+        path = dest / BackupManager.generate_backup_filename(original, OLD_TIME + timedelta(days=offset))
+        path.write_text("old")
+        paths.append(path)
+    return paths
+
+
+def _with_rules(tmp_path: Path, rules: dict[str, int]) -> tuple[Path, Path]:
+    """Initialize source and dest and store the retention rules."""
+    source, dest = _initialized(tmp_path)
+    _store_retention(dest, rules)
+    return source, dest
+
+
+def _new_backup_names(dest: Path, stem: str) -> list[str]:
+    """Return the names of the backups of stem made in this test, that is neither from 2020 nor from the future year 2999."""
+    return [path.name for path in dest.glob(f"{stem}_*") if not path.name.startswith((f"{stem}_2020_", f"{stem}_2999_"))]
+
+
+def _log(dest: Path) -> str:
+    return (dest / "backup.log").read_text(encoding="utf-8")
+
+
+class TestRetentionInRun:
+    """run applies the saved rules to the backups of each file it backed up (spec AC-8.3, AC-8.8 to AC-8.13)."""
+
+    @pytest.fixture(autouse=True)
+    def _wide_console(self, mocker: MockFixture) -> None:
+        """Print to the runner's output without wrapping, so a long path stays on one line."""
+        from rich.console import Console
+
+        mocker.patch("trs_file_backup.main.console", Console(width=1000, emoji=False))
+
+    @staticmethod
+    def _run(source: Path, dest: Path, *options: str) -> Result:
+        from trs_file_backup.main import app
+
+        return runner.invoke(app, ["run", "--source", str(source), "--destination", str(dest), *options])
+
+    def test_deletes_old_backups_of_the_backed_up_file_and_keeps_the_new_one(self, tmp_path: Path) -> None:
+        source, dest = _with_rules(tmp_path, DAYS_ONE)
+        old = _old_backups(dest, "report.txt")
+        (source / "report.txt").write_text("new")
+
+        result = self._run(source, dest)
+
+        assert result.exit_code == 0, result.output
+        assert not any(path.exists() for path in old)
+        assert _backed_up(dest, "report", ".txt")
+        lines = click.unstyle(result.output).splitlines()
+        for path in old:
+            assert f"  Deleted old backup: {path.name}" in lines
+            assert f"[INFO] Deleted old backup: {path.name}" in _log(dest)
+        assert "Successfully backed up 1 files to" in result.output
+
+    def test_deletes_only_backups_of_the_backed_up_file(self, tmp_path: Path) -> None:
+        source, dest = _with_rules(tmp_path, DAYS_ONE)
+        own = _old_backups(dest, "report.txt")
+        # Same stem with another suffix, and another file: both are other groups (a case-only variant needs a case-sensitive file system)
+        others = [*_old_backups(dest, "other.txt"), *_old_backups(dest, "report.md")]
+        (source / "report.txt").write_text("new")
+
+        result = self._run(source, dest)
+
+        assert result.exit_code == 0, result.output
+        assert not any(path.exists() for path in own)
+        assert all(path.exists() for path in others)
+
+    def test_never_deletes_files_that_are_no_backup(self, tmp_path: Path) -> None:
+        from trs_file_backup.backup import BackupManager
+
+        source, dest = _with_rules(tmp_path, DAYS_ONE)
+        own = _old_backups(dest, "report.txt")
+        foreign = [dest / "notes.txt", dest / ".trs-file-backup-0123456789ab.tmp", dest / "report_2020_02_30__08_00_00.txt"]
+        for path in foreign:
+            path.write_text("x")
+        directory = dest / BackupManager.generate_backup_filename("report.txt", OLD_TIME.replace(year=2019))
+        directory.mkdir()
+        (source / "report.txt").write_text("new")
+
+        result = self._run(source, dest)
+
+        assert result.exit_code == 0, result.output
+        assert not any(path.exists() for path in own)
+        assert all(path.exists() for path in foreign)
+        assert directory.is_dir()
+        # The directory is no candidate at all (spec AC-8.6), so no deletion of it is even tried and reported
+        assert directory.name not in result.output
+        assert directory.name not in _log(dest)
+        assert (dest / "backup.log").exists()
+        assert (dest / ".backup_state.json").exists()
+
+    def test_all_rules_zero_neither_lists_nor_deletes(self, mocker: MockFixture, tmp_path: Path) -> None:
+        source, dest = _with_rules(tmp_path, ALL_RULES_OFF)
+        old = _old_backups(dest, "report.txt")
+        (source / "report.txt").write_text("new")
+        listing = mocker.patch("trs_file_backup.main.list_backup_groups")
+
+        result = self._run(source, dest)
+
+        assert result.exit_code == 0, result.output
+        listing.assert_not_called()
+        assert all(path.exists() for path in old)
+
+    def test_dry_run_neither_lists_nor_deletes(self, mocker: MockFixture, tmp_path: Path) -> None:
+        source, dest = _with_rules(tmp_path, DAYS_ONE)
+        old = _old_backups(dest, "report.txt")
+        (source / "report.txt").write_text("new")
+        listing = mocker.patch("trs_file_backup.main.list_backup_groups")
+        delete = mocker.patch("trs_file_backup.main.delete_backup")
+
+        result = self._run(source, dest, "--dry-run")
+
+        assert result.exit_code == 0, result.output
+        listing.assert_not_called()
+        delete.assert_not_called()
+        assert all(path.exists() for path in old)
+
+    def test_no_modified_file_lists_nothing(self, mocker: MockFixture, tmp_path: Path) -> None:
+        source, dest = _with_rules(tmp_path, DAYS_ONE)
+        _old_backups(dest, "report.txt")
+        listing = mocker.patch("trs_file_backup.main.list_backup_groups")
+
+        result = self._run(source, dest)
+
+        assert result.exit_code == 0, result.output
+        listing.assert_not_called()
+
+    def test_lists_the_destination_once_for_several_files(self, mocker: MockFixture, tmp_path: Path) -> None:
+        from trs_file_backup.backup import list_backup_groups
+
+        source, dest = _with_rules(tmp_path, DAYS_ONE)
+        old = [*_old_backups(dest, "a.txt"), *_old_backups(dest, "b.txt"), *_old_backups(dest, "c.txt")]
+        for name in ("a.txt", "b.txt", "c.txt"):
+            (source / name).write_text("new")
+        listing = mocker.patch("trs_file_backup.main.list_backup_groups", wraps=list_backup_groups)
+
+        result = self._run(source, dest)
+
+        assert result.exit_code == 0, result.output
+        assert listing.call_count == 1
+        assert not any(path.exists() for path in old)
+        for stem in ("a", "b", "c"):
+            assert _backed_up(dest, stem, ".txt")
+
+    def test_a_backup_made_after_the_listing_is_added_to_it(self, mocker: MockFixture, tmp_path: Path) -> None:
+        from trs_file_backup.backup import BackupManager, list_backup_groups
+
+        source, dest = _with_rules(tmp_path, DAYS_ONE)
+        files = [source / "a.txt", source / "b.txt"]
+        for file in files:
+            file.write_text("new")
+        (old_b,) = _old_backups(dest, "b.txt", count=1)
+        # a.txt first: the only listing happens after the backup of a.txt, before the backup of b.txt
+        mocker.patch.object(BackupManager, "get_files_to_backup", return_value=files)
+        listing = mocker.patch("trs_file_backup.main.list_backup_groups", wraps=list_backup_groups)
+
+        result = self._run(source, dest)
+
+        assert result.exit_code == 0, result.output
+        assert listing.call_count == 1
+        # Only when the new backup of b.txt is added to the list does the old one stop being the newest, so days=1 deletes it
+        assert not old_b.exists()
+        assert len(_new_backup_names(dest, "b")) == 1
+
+    def test_the_backup_just_made_is_kept_when_a_future_backup_sorts_as_newer(self, tmp_path: Path) -> None:
+        source, dest = _with_rules(tmp_path, DAYS_ONE)
+        (older,) = _old_backups(dest, "report.txt", count=1)
+        future = dest / "report_2999_01_01__00_00_00.txt"
+        future.write_text("future")
+        (source / "report.txt").write_text("new")
+
+        result = self._run(source, dest)
+
+        assert result.exit_code == 0, result.output
+        assert future.exists()
+        assert not older.exists()
+        assert len(_new_backup_names(dest, "report")) == 1
+
+    @pytest.mark.parametrize("error", [OSError(errno.EIO, "Input/output error"), RuntimeError("Input/output error")], ids=["oserror", "other-error"])
+    def test_a_failed_listing_is_reported_once_and_changes_no_count(self, mocker: MockFixture, tmp_path: Path, error: Exception) -> None:
+        source, dest = _with_rules(tmp_path, DAYS_ONE)
+        old = [*_old_backups(dest, "a.txt"), *_old_backups(dest, "b.txt")]
+        (source / "a.txt").write_text("new")
+        (source / "b.txt").write_text("new")
+        listing = mocker.patch("trs_file_backup.main.list_backup_groups", side_effect=error)
+
+        result = self._run(source, dest)
+
+        assert result.exit_code == 0, result.output
+        assert listing.call_count == 1
+        assert all(path.exists() for path in old)
+        output = click.unstyle(result.output)
+        message = f"Cannot list backups in {dest}: Input/output error"
+        assert f"  ERROR {message}" in output.splitlines()
+        assert "Successfully backed up 2 files to" in output
+        assert "Failed:" not in output
+        log = _log(dest)
+        assert log.count(f"[ERROR] {message}") == 1
+        assert "Session summary: 2 of 2 files backed up" in log
+
+    def test_a_failed_deletion_is_reported_and_the_next_backup_is_deleted(self, mocker: MockFixture, tmp_path: Path) -> None:
+        source, dest = _with_rules(tmp_path, DAYS_ONE)
+        first, second = _old_backups(dest, "report.txt")
+        (source / "report.txt").write_text("new")
+        real_unlink = Path.unlink
+
+        def fail_for_first(path: Path, missing_ok: bool = False) -> None:
+            if path.name == first.name:
+                raise OSError(errno.EIO, "Input/output error")
+            real_unlink(path, missing_ok=missing_ok)
+
+        mocker.patch.object(Path, "unlink", autospec=True, side_effect=fail_for_first)
+
+        result = self._run(source, dest)
+
+        assert result.exit_code == 0, result.output
+        assert first.exists()
+        assert not second.exists()
+        message = f"Cannot delete backup: {first.name} (Input/output error)"
+        assert f"  ERROR {message}" in click.unstyle(result.output).splitlines()
+        assert f"[ERROR] {message}" in _log(dest)
+        assert "Successfully backed up 1 files to" in result.output
+        assert "Failed:" not in result.output
+
+    def test_an_unexpected_error_while_deleting_skips_only_that_backup(self, mocker: MockFixture, tmp_path: Path) -> None:
+        from trs_file_backup.backup import delete_backup
+
+        source, dest = _with_rules(tmp_path, DAYS_ONE)
+        first, second = _old_backups(dest, "report.txt")
+        (source / "report.txt").write_text("new")
+
+        def fail_for_first(path: Path) -> Any:
+            if path.name == first.name:
+                raise RuntimeError("boom")
+            return delete_backup(path)
+
+        mocker.patch("trs_file_backup.main.delete_backup", side_effect=fail_for_first)
+
+        result = self._run(source, dest)
+
+        assert result.exit_code == 0, result.output
+        assert first.exists()
+        assert not second.exists()
+        assert f"[ERROR] Cannot delete backup: {first.name} (boom)" in _log(dest)
+
+    def test_a_locked_backup_is_a_warning(self, mocker: MockFixture, tmp_path: Path, with_winerror: Callable[[OSError, int], OSError]) -> None:
+        source, dest = _with_rules(tmp_path, DAYS_ONE)
+        (old,) = _old_backups(dest, "report.txt", count=1)
+        (source / "report.txt").write_text("new")
+        mocker.patch.object(Path, "unlink", side_effect=with_winerror(PermissionError(errno.EACCES, "sharing violation"), 32))
+
+        result = self._run(source, dest)
+
+        assert result.exit_code == 0, result.output
+        assert old.exists()
+        assert f"  WARNING Backup locked, not deleted: {old.name}" in click.unstyle(result.output).splitlines()
+        assert f"[WARNING] Backup locked, not deleted: {old.name}" in _log(dest)
+
+    def test_a_backup_already_gone_is_not_reported(self, mocker: MockFixture, tmp_path: Path) -> None:
+        source, dest = _with_rules(tmp_path, DAYS_ONE)
+        (old,) = _old_backups(dest, "report.txt", count=1)
+        (source / "report.txt").write_text("new")
+        real_unlink = Path.unlink
+
+        def vanish(path: Path, missing_ok: bool = False) -> None:
+            real_unlink(path)
+            raise FileNotFoundError(errno.ENOENT, "No such file or directory")
+
+        mocker.patch.object(Path, "unlink", autospec=True, side_effect=vanish)
+
+        result = self._run(source, dest)
+
+        assert result.exit_code == 0, result.output
+        assert not old.exists()
+        assert old.name not in result.output
+        assert old.name not in _log(dest)
+
+    def test_a_read_only_backup_is_deleted(self, tmp_path: Path) -> None:
+        source, dest = _with_rules(tmp_path, DAYS_ONE)
+        (old,) = _old_backups(dest, "report.txt", count=1)
+        os.chmod(old, stat.S_IREAD)
+        (source / "report.txt").write_text("new")
+
+        result = self._run(source, dest)
+
+        assert result.exit_code == 0, result.output
+        assert not old.exists()
+
+    def test_an_error_while_applying_the_rules_is_reported(self, mocker: MockFixture, tmp_path: Path) -> None:
+        source, dest = _with_rules(tmp_path, DAYS_ONE)
+        old = _old_backups(dest, "report.txt")
+        (source / "report.txt").write_text("new")
+        mocker.patch("trs_file_backup.main.plan_retention", side_effect=RuntimeError("boom"))
+
+        result = self._run(source, dest)
+
+        assert result.exit_code == 0, result.output
+        assert all(path.exists() for path in old)
+        message = "Retention failed for report.txt: boom"
+        assert f"  ERROR {message}" in click.unstyle(result.output).splitlines()
+        assert f"[ERROR] {message}" in _log(dest)
+        assert "Successfully backed up 1 files to" in result.output
+
+    def test_a_failed_backup_applies_no_rules(self, mocker: MockFixture, tmp_path: Path) -> None:
+        source, dest = _with_rules(tmp_path, DAYS_ONE)
+        old = _old_backups(dest, "report.txt")
+        (source / "report.txt").write_text("new")
+        mocker.patch("trs_file_backup.backup.BackupManager.backup_file", side_effect=OSError(errno.ENOSPC, "No space left on device"))
+        listing = mocker.patch("trs_file_backup.main.list_backup_groups")
+
+        result = self._run(source, dest)
+
+        assert result.exit_code == 0, result.output
+        listing.assert_not_called()
+        assert all(path.exists() for path in old)
+
+    def test_the_rules_run_after_the_backup_and_the_state_update(self, mocker: MockFixture, tmp_path: Path) -> None:
+        from trs_file_backup.backup import list_backup_groups
+        from trs_file_backup.state import StateManager
+
+        source, dest = _with_rules(tmp_path, DAYS_ONE)
+        (source / "report.txt").write_text("new")
+        update = mocker.spy(StateManager, "update_file_timestamp")
+        seen: list[tuple[bool, int]] = []
+
+        def check(destination: Path) -> Any:
+            seen.append((_backed_up(destination, "report", ".txt"), update.call_count))
+            return list_backup_groups(destination)
+
+        mocker.patch("trs_file_backup.main.list_backup_groups", side_effect=check)
+
+        result = self._run(source, dest)
+
+        assert result.exit_code == 0, result.output
+        assert seen == [(True, 1)]
+
+
+class TestRetentionInWatch:
+    """watch applies the rules it started with to the backups of each file it backed up (spec AC-8.9 to AC-8.13, AC-8.15)."""
+
+    @staticmethod
+    def _handler(mocker: MockFixture, tmp_path: Path, rules: Any, state: Any = None) -> tuple[Any, Path, Path, io.StringIO]:
+        from rich.console import Console
+
+        from trs_file_backup.backup import BackupManager
+        from trs_file_backup.logger import BackupLogger
+        from trs_file_backup.main import BackupEventHandler
+
+        output = io.StringIO()
+        mocker.patch("trs_file_backup.main.console", Console(file=output, width=300, color_system=None))
+        source = tmp_path / "source"
+        source.mkdir()
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        manager = BackupManager(source, dest, [], None)
+        logger = BackupLogger(dest)
+        handler = BackupEventHandler(manager, state if state is not None else Mock(), logger, 1, retention=rules)
+        return handler, source, dest, output
+
+    @staticmethod
+    def _process(mocker: MockFixture, handler: Any, *files: Path) -> None:
+        from watchdog.events import FileModifiedEvent
+
+        mocker.patch("time.time", return_value=100.0)
+        for file in files:
+            handler.on_modified(FileModifiedEvent(str(file)))
+        mocker.patch("time.time", return_value=102.0)
+        try:
+            handler.process_pending_files()
+        finally:
+            handler.logger.close()
+
+    def test_deletes_old_backups_after_the_file_left_the_pending_files(self, mocker: MockFixture, tmp_path: Path) -> None:
+        from trs_file_backup.backup import list_backup_groups
+        from trs_file_backup.retention import RetentionRules
+
+        state = Mock()
+        handler, source, dest, output = self._handler(mocker, tmp_path, RetentionRules(days=1), state)
+        old = _old_backups(dest, "report.txt")
+        file = source / "report.txt"
+        file.write_text("new")
+        seen: list[tuple[bool, bool, bool]] = []
+
+        def check(destination: Path) -> Any:
+            seen.append((file in handler.pending_files, state.update_file_timestamp.called, state.save.called))
+            return list_backup_groups(destination)
+
+        mocker.patch("trs_file_backup.main.list_backup_groups", side_effect=check)
+
+        self._process(mocker, handler, file)
+
+        assert seen == [(False, True, True)]
+        assert not any(path.exists() for path in old)
+        assert _backed_up(dest, "report", ".txt")
+        assert f"Deleted old backup: {old[0].name}" in output.getvalue().splitlines()
+        assert f"[INFO] Deleted old backup: {old[0].name}" in _log(dest)
+
+    def test_the_backup_just_made_is_kept_when_a_future_backup_sorts_as_newer(self, mocker: MockFixture, tmp_path: Path) -> None:
+        from trs_file_backup.retention import RetentionRules
+
+        handler, source, dest, _ = self._handler(mocker, tmp_path, RetentionRules(days=1))
+        (older,) = _old_backups(dest, "report.txt", count=1)
+        future = dest / "report_2999_01_01__00_00_00.txt"
+        future.write_text("future")
+        file = source / "report.txt"
+        file.write_text("new")
+
+        self._process(mocker, handler, file)
+
+        assert handler.backed_up_count == 1
+        assert future.exists()
+        assert not older.exists()
+        assert len(_new_backup_names(dest, "report")) == 1
+
+    def test_a_failed_state_save_still_applies_the_rules(self, mocker: MockFixture, tmp_path: Path) -> None:
+        from trs_file_backup.retention import RetentionRules
+
+        state = Mock()
+        state.save.side_effect = OSError(errno.ENOSPC, "No space left on device")
+        handler, source, dest, _ = self._handler(mocker, tmp_path, RetentionRules(days=1), state)
+        old = _old_backups(dest, "report.txt")
+        file = source / "report.txt"
+        file.write_text("new")
+
+        self._process(mocker, handler, file)
+
+        assert not any(path.exists() for path in old)
+
+    @pytest.mark.parametrize("error", [OSError(errno.EIO, "Input/output error"), RuntimeError("Input/output error")], ids=["oserror", "other-error"])
+    def test_a_failed_listing_is_reported_each_time_and_watch_goes_on(self, mocker: MockFixture, tmp_path: Path, error: Exception) -> None:
+        from trs_file_backup.retention import RetentionRules
+
+        handler, source, dest, output = self._handler(mocker, tmp_path, RetentionRules(days=1))
+        old = _old_backups(dest, "a.txt")
+        listing = mocker.patch("trs_file_backup.main.list_backup_groups", side_effect=error)
+        files = [source / "a.txt", source / "b.txt"]
+        for file in files:
+            file.write_text("new")
+
+        self._process(mocker, handler, *files)
+
+        assert handler.backed_up_count == 2
+        assert handler.pending_files == {}
+        assert listing.call_count == 2
+        assert all(path.exists() for path in old)
+        message = f"Cannot list backups in {dest}: Input/output error"
+        assert output.getvalue().splitlines().count(f"ERROR {message}") == 2
+        assert _log(dest).count(f"[ERROR] {message}") == 2
+
+    def test_a_failed_deletion_does_not_end_watch(self, mocker: MockFixture, tmp_path: Path) -> None:
+        from trs_file_backup.retention import RetentionRules
+
+        handler, source, dest, output = self._handler(mocker, tmp_path, RetentionRules(days=1))
+        (old,) = _old_backups(dest, "a.txt", count=1)
+        mocker.patch.object(Path, "unlink", side_effect=OSError(errno.EIO, "Input/output error"))
+        files = [source / "a.txt", source / "b.txt"]
+        for file in files:
+            file.write_text("new")
+
+        self._process(mocker, handler, *files)
+
+        assert handler.backed_up_count == 2
+        assert old.exists()
+        assert f"ERROR Cannot delete backup: {old.name} (Input/output error)" in output.getvalue().splitlines()
+
+    def test_without_rules_nothing_is_listed(self, mocker: MockFixture, tmp_path: Path) -> None:
+        handler, source, dest, _ = self._handler(mocker, tmp_path, None)
+        old = _old_backups(dest, "a.txt")
+        listing = mocker.patch("trs_file_backup.main.list_backup_groups")
+        file = source / "a.txt"
+        file.write_text("new")
+
+        self._process(mocker, handler, file)
+
+        listing.assert_not_called()
+        assert all(path.exists() for path in old)
+
+    def test_a_failed_backup_applies_no_rules(self, mocker: MockFixture, tmp_path: Path) -> None:
+        from trs_file_backup.retention import RetentionRules
+
+        handler, source, dest, _ = self._handler(mocker, tmp_path, RetentionRules(days=1))
+        old = _old_backups(dest, "a.txt")
+        mocker.patch("trs_file_backup.backup.BackupManager.backup_file", side_effect=OSError(errno.ENOSPC, "No space left on device"))
+        listing = mocker.patch("trs_file_backup.main.list_backup_groups")
+        file = source / "a.txt"
+        file.write_text("new")
+
+        self._process(mocker, handler, file)
+
+        listing.assert_not_called()
+        assert all(path.exists() for path in old)
+
+    def test_watch_passes_the_rules_it_started_with(self, mocker: MockFixture, tmp_path: Path) -> None:
+        from trs_file_backup.main import BackupEventHandler, app
+        from trs_file_backup.retention import RetentionRules
+
+        source, dest = _with_rules(tmp_path, EXAMPLE_RULES)
+        mocker.patch("trs_file_backup.main.Observer")
+        mocker.patch("time.sleep", side_effect=KeyboardInterrupt())
+        handler_spy = mocker.patch("trs_file_backup.main.BackupEventHandler", wraps=BackupEventHandler)
+
+        result = runner.invoke(app, ["watch", "--source", str(source), "--destination", str(dest)])
+
+        assert result.exit_code == 0, result.output
+        assert handler_spy.call_args.kwargs["retention"] == RetentionRules(**EXAMPLE_RULES)

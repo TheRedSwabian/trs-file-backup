@@ -177,7 +177,7 @@ and automatically backs up files when they are modified, created or moved into i
   backup locked and not deleted (AC-8.13))
 - **ERROR**: Critical errors (permission denied and copy failed as AC-6.18 defines them, state file not saved in watch mode (AC-5.11),
   source directory not found,
-  backup not deleted or destination not listed for retention (AC-8.13))
+  backup not deleted, destination not listed or rules not applied for retention (AC-8.13))
 
 ### FR-7: Show and Edit the Saved Settings
 
@@ -287,6 +287,7 @@ The rules follow the model of `borg prune` and `restic forget`: count periods, k
 - AC-8.1: The system shall support the four retention rules in the table above, each a whole number.
   A backup shall be kept when at least one rule keeps it, and is deleted when no rule keeps it, except when all rules are 0 (AC-8.3).
   The newest backup of each original file shall always be kept, whatever the rules say.
+  In `run` and `watch`, the backup just made is kept as well (AC-8.9).
 - AC-8.2: The value 0 shall turn a rule off.
   The value -1 shall mean no limit: `retention.days`, `retention.weeks` and `retention.months` keep the newest backup of every period,
   and `retention.hours` keeps every backup.
@@ -314,10 +315,14 @@ The rules follow the model of `borg prune` and `restic forget`: count periods, k
 - AC-8.8: A file that is not a backup by AC-8.6 shall never be deleted, for example the state file, `backup.log`, a temporary file (AC-2.8) or a foreign file
 - AC-8.9: In `run` and `watch`, the rules shall be applied to the group of a source file
   after its backup is complete (renamed from the temporary file, AC-2.8),
-  the state records the backup (AC-3.5), and `watch` has removed the file from its pending files.
+  the state records the backup (AC-3.5), and `watch` has updated its pending files for this backup.
   This holds also when the state file could not be saved (AC-5.11), because the backup still counts.
   Deleting before the copy would leave one backup fewer than the rules promise if the copy failed.
   After a failed or skipped backup, the rules are not applied for that file.
+  The backup just made shall never be deleted, whatever the rules and the times in the names say,
+  because it holds the current state of the file: a backup whose time lies after now (AC-8.4) or one from the repeated hour of a clock change (KL-4)
+  can sort as newer and would otherwise leave it unkept.
+  So retention in `run` and `watch` may keep one backup more than AC-8.1 says, never one fewer.
 - AC-8.10: `run` shall list the destination directory at most once and add each new backup to that list itself.
   When that listing fails, `run` shall report it once and delete nothing more in this run.
   `watch` shall list the destination directory each time it applies the rules.
@@ -325,8 +330,9 @@ The rules follow the model of `borg prune` and `restic forget`: count periods, k
   a failed listing, a failed deletion or any other error while the rules are applied is reported (AC-8.13);
   it never fails the backup, never changes the count of backed up files or the exit code of `run`, and never ends `watch`
 - AC-8.12: `run --dry-run` shall delete nothing and list nothing for retention; `cleanup --dry-run` shows what the rules would delete (AC-8.14)
-- AC-8.13: To delete a backup, the system shall clear its read-only bit first when it is set.
-  When the deletion then still fails, the system shall set the read-only bit again;
+- AC-8.13: When a deletion fails for missing permission (AC-6.18) and the backup is read-only,
+  the system shall clear its read-only bit and try the deletion once more.
+  When that try still fails, the system shall set the read-only bit again;
   a failure to set it again is not reported separately, because the failed deletion is already reported.
   A backup that is already gone is no error and is not reported, and it counts as deleted, because the goal is reached.
   The console and the log shall report:
@@ -334,6 +340,7 @@ The rules follow the model of `borg prune` and `restic forget`: count periods, k
   - A backup that cannot be deleted because it is locked, as AC-6.18 recognises a lock: level `WARNING`, message `Backup locked, not deleted: <name>`
   - A backup that cannot be deleted for any other cause: level `ERROR`, message `Cannot delete backup: <name> (<reason>)`, with `<reason>` as in AC-6.18
   - A failed listing of the destination directory: level `ERROR`, message `Cannot list backups in <destination>: <reason>`
+  - Any other error while the rules are applied to the backups of the original file `<original>`: level `ERROR`, message `Retention failed for <original>: <reason>`
 
   A backup that cannot be deleted is skipped; the system continues with the next one.
 - AC-8.14: `cleanup --destination <path> [--dry-run]` shall apply the saved rules to every group of backups in the destination directory.
@@ -1147,6 +1154,8 @@ Around a change of daylight saving time, ages and the order of backups can there
 - When the clocks go back, backups made before the change look one hour younger and are kept up to one hour longer.
 - When the clocks go back, a backup made in the repeated hour can sort before an older backup from the first pass of that hour,
   so the rules can keep the older one as the newest backup of the file and delete the really newer one.
+  `run` and `watch` never delete the backup they have just made (AC-8.9), so there this hits only older backups;
+  `cleanup` has no backup just made and can delete the really newest one.
 
 **Decision (2026-11-18):** documented, not changed; the issue decides that the time of a backup comes from its name (issue #27).
 
@@ -1168,7 +1177,11 @@ Around a change of daylight saving time, ages and the order of backups can there
 - Backup name reading for retention (AC-8.6): a name is a backup only when `generate_backup_filename()` gives exactly this name back
   for the original name and the time read from it.
   `retention.parse_backup_name()` reads a name,
-  and `retention.select_backups_to_keep()` applies the rules (FR-8) to the backups of one original file, without any file access
+  and `retention.select_backups_to_keep()` applies the rules (FR-8) to the backups of one original file, without any file access;
+  `retention.plan_retention()` splits them into kept and deleted backups, newest first
+- File access for retention: `backup.list_backup_groups()` lists the backups (AC-8.6, AC-8.7)
+  and `backup.delete_backup()` deletes one and returns the outcome without reporting it (AC-8.13);
+  `run` and `watch` apply the rules through `main.RetentionApplier` (AC-8.9 to AC-8.11)
 - Implement atomic state file updates (write to temp file, then rename)
 - Use `pathlib.Path.match()` for pattern matching with wildcard support
 - Exclusion patterns: AC-4.6 (file name only) and AC-4.9 (which patterns are accepted)
