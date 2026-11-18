@@ -60,6 +60,29 @@ class TestFileOperations:
         assert BackupManager.matches_exclusion_pattern(".gitignore", patterns) is True
         assert BackupManager.matches_exclusion_pattern("normal.txt", patterns) is False
 
+    @pytest.mark.parametrize(
+        ("filename", "expected"),
+        [
+            (".gitignore", "hidden"),
+            (".backup_state.json", "hidden"),
+            ("debug.log", "*.log"),
+            ("temp_debug.log", "temp_*"),
+            ("report.txt", None),
+        ],
+    )
+    def test_exclusion_reason(self, filename: str, expected: str | None) -> None:
+        """A hidden name gives the hidden-file reason (AC-4.1); otherwise the first matching pattern (AC-6.17)."""
+        from trs_file_backup.backup import BackupManager, ExclusionReason
+
+        reason = BackupManager.exclusion_reason(filename, [".backup_state.json", "temp_*", "*.log"])
+
+        if expected is None:
+            assert reason is None
+        elif expected == "hidden":
+            assert reason == ExclusionReason(pattern=None)
+        else:
+            assert reason == ExclusionReason(pattern=expected)
+
     def test_get_files_to_backup_all_new_files(self, mocker: MockFixture) -> None:
         """Test getting files when no state exists (first run)."""
         from trs_file_backup.backup import BackupManager

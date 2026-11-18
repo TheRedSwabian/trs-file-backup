@@ -1,22 +1,26 @@
 """Main CLI application for trs-file-backup."""
 
 import io
+import os
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, NoReturn, TextIO
+from typing import NoReturn, TextIO
 
 import typer
 from rich.console import Console
 from rich.prompt import Confirm, IntPrompt, Prompt
-from watchdog.events import FileSystemEventHandler
+from rich.text import Text
+from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
 from trs_file_backup import __version__
 from trs_file_backup.backup import BackupManager
 from trs_file_backup.logger import BackupLogger
+from trs_file_backup.patterns import pattern_problem
 from trs_file_backup.state import StateManager
 
 app = typer.Typer(
@@ -33,11 +37,22 @@ Examples:
 Use 'trs-file-backup COMMAND --help' for detailed information on each command.
 """,
 )
-console = Console()
+# No emoji replacement: a file name or pattern such as ":fire:x.txt" must print as it is
+console = Console(emoji=False)
 
 STATE_FILE_NAME = ".backup_state.json"
 DEFAULT_DEBOUNCE_SECONDS = 2
 DEBOUNCE_DEFAULT_HELP = f"saved value, else {DEFAULT_DEBOUNCE_SECONDS}"
+
+
+def check_exclude_values(values: list[str]) -> list[str]:
+    """Return the --exclude values without surrounding whitespace; reject one that AC-4.9 rejects."""
+    patterns = [value.strip() for value in values]
+    for pattern in patterns:
+        problem = pattern_problem(pattern)
+        if problem is not None:
+            raise typer.BadParameter(f"'{pattern}' is not usable: {problem}. Give a file name or a wildcard pattern such as *.log.")
+    return patterns
 
 
 def exclusion_patterns(user_patterns: list[str]) -> list[str]:
@@ -152,7 +167,8 @@ def init(
         [],
         "--exclude",
         metavar="PATTERN",
-        help="File/directory patterns to exclude (can be repeated)",
+        callback=check_exclude_values,
+        help="File-name patterns to exclude (can be repeated)",
     ),
     debounce: int = typer.Option(
         2,
@@ -212,13 +228,13 @@ def init(
         logger.log_session_end()
 
         # Show user message
-        console.print(f"[green]OK[/green] Initialized backup tracking for {source}")
-        console.print(f"State file saved to {state.state_file_path}")
-        console.print(f"Log file created: {destination / 'backup.log'}")
+        console.print(Text.assemble(("OK", "green"), f" Initialized backup tracking for {source}"))
+        console.print(f"State file saved to {state.state_file_path}", markup=False)
+        console.print(f"Log file created: {destination / 'backup.log'}", markup=False)
         console.print("Next run will back up all files.")
 
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(Text.assemble(("Error:", "red"), f" {e}"))
         raise typer.Exit(code=1) from None
     finally:
         if logger is not None:
@@ -248,7 +264,8 @@ def run(
         [],
         "--exclude",
         metavar="PATTERN",
-        help="File/directory patterns to exclude (can be repeated). Replaces the saved patterns; if not given, the saved patterns are used",
+        callback=check_exclude_values,
+        help="File-name patterns to exclude (can be repeated). Replaces the saved patterns; if not given, the saved patterns are used",
     ),
     debounce: int | None = typer.Option(
         None,
@@ -326,7 +343,7 @@ def run(
         )
 
         # Get files to backup
-        console.print(f"Scanning source directory: {source}")
+        console.print(f"Scanning source directory: {source}", markup=False)
         files_to_backup = backup_manager.get_files_to_backup()
         logger.log_found_files(len(files_to_backup))
 
@@ -345,7 +362,7 @@ def run(
             for file in files_to_backup:
                 timestamp = datetime.now()
                 backup_name = BackupManager.generate_backup_filename(file.name, timestamp)
-                console.print(f"  Would backup: {file.name} -> {backup_name}")
+                console.print(f"  Would backup: {file.name} -> {backup_name}", markup=False)
             logger.log_session_end(0, len(files_to_backup))
             return
 
@@ -359,26 +376,27 @@ def run(
                 # Wait debounce time
                 time.sleep(debounce_seconds)
 
-                # Backup file
+                # Read the mtime before the copy: a write during the copy must stay "modified" for the next run
+                mtime = file.stat().st_mtime
                 timestamp = datetime.now()
                 backup_path = backup_manager.backup_file(file, timestamp)
 
                 # Update state
-                state.update_file_timestamp(file.name, file.stat().st_mtime)
+                state.update_file_timestamp(file.name, mtime)
 
                 # Log success
                 logger.log_file_backed_up(file.name, backup_path.name)
-                console.print(f"  [green]OK[/green] {file.name} -> {backup_path.name}")
+                console.print(Text.assemble("  ", ("OK", "green"), f" {file.name} -> {backup_path.name}"))
                 backed_up_count += 1
 
             except PermissionError:
                 logger.log_error(f"Permission denied: {file.name}")
-                console.print(f"  [red]ERROR[/red] Permission denied: {file.name}")
+                console.print(Text.assemble("  ", ("ERROR", "red"), f" Permission denied: {file.name}"))
                 failed_count += 1
 
             except OSError:
                 logger.log_file_locked(file.name)
-                console.print(f"  [yellow]WARNING[/yellow] File locked, skipping: {file.name}")
+                console.print(Text.assemble("  ", ("WARNING", "yellow"), f" File locked, skipping: {file.name}"))
                 failed_count += 1
 
         # Save updated state
@@ -389,13 +407,13 @@ def run(
         logger.log_session_end(backed_up_count, len(files_to_backup))
 
         # Show summary
-        console.print(f"\n[green]Successfully backed up {backed_up_count} files to {destination}[/green]")
+        console.print(Text.assemble("\n", (f"Successfully backed up {backed_up_count} files to {destination}", "green")))
         if failed_count > 0:
             console.print(f"[yellow]Failed: {failed_count} files[/yellow]")
-        console.print(f"Logging to: {destination / 'backup.log'}")
+        console.print(f"Logging to: {destination / 'backup.log'}", markup=False)
 
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(Text.assemble(("Error:", "red"), f" {e}"))
         raise typer.Exit(code=1) from None
     finally:
         if logger is not None:
@@ -425,79 +443,118 @@ class BackupEventHandler(FileSystemEventHandler):
         self.state = state
         self.logger = logger
         self.debounce_seconds = debounce_seconds
+        # Written by the observer thread, read and cleared by the main thread: every access holds this lock
         self.pending_files: dict[Path, float] = {}
+        self._pending_lock = threading.Lock()
         self.backed_up_count = 0
 
-    def on_modified(self, event: Any) -> None:
-        """Handle file modification event.
+    def on_modified(self, event: FileSystemEvent) -> None:
+        """Queue a modified file for backup (spec AC-5.3)."""
+        if not event.is_directory:
+            self._queue_file(Path(os.fsdecode(event.src_path)), "modified")
 
-        Args:
-            event: File system event
+    def on_created(self, event: FileSystemEvent) -> None:
+        """Queue a created file for backup (spec AC-5.10)."""
+        if not event.is_directory:
+            self._queue_file(Path(os.fsdecode(event.src_path)), "created")
+
+    def on_moved(self, event: FileSystemEvent) -> None:
+        """Queue the destination of a moved or renamed file for backup (spec AC-5.10).
+
+        The source path is never used: the Windows emitter may report it empty.
         """
         if event.is_directory:
             return
+        dest_path = Path(os.fsdecode(event.dest_path))
+        if self._is_in_subdirectory(dest_path):
+            return
+        self._queue_file(dest_path, "moved")
 
-        file_path = Path(event.src_path)
+    def _is_in_subdirectory(self, file_path: Path) -> bool:
+        """Return True if the path of file_path lies in a subdirectory of the source folder.
 
-        # Skip excluded files
-        if BackupManager.matches_exclusion_pattern(file_path.name, self.backup_manager.excluded_patterns):
-            # Find matching pattern for logging
-            for pattern in self.backup_manager.excluded_patterns:
-                if file_path.match(pattern) or (file_path.name.startswith(".") and pattern == ".backup_state.json"):
-                    self.logger.log_file_excluded(file_path.name, pattern)
-                    break
+        The macOS emitter can report a move from the top level into a subdirectory as a moved event.
+        The decision uses the paths only, never the file system, so it also holds when the file is gone already.
+        """
+        source = os.path.normcase(os.path.abspath(self.backup_manager.source_path))
+        parent = os.path.normcase(os.path.abspath(file_path.parent))
+        relative = os.path.relpath(parent, source)
+        return relative != os.curdir and Path(relative).parts[0] != os.pardir
+
+    def _queue_file(self, file_path: Path, change: str) -> None:
+        """Log the event and queue file_path for backup, or log why it is excluded (spec AC-6.16, AC-6.17).
+
+        Args:
+            file_path: File in the source folder
+            change: Kind of change shown to the user: "modified", "created" or "moved"
+        """
+        name = file_path.name
+        reason = BackupManager.exclusion_reason(name, self.backup_manager.excluded_patterns)
+        if reason is not None:
+            if reason.pattern is None:
+                self.logger.log_hidden_file_excluded(name)
+            else:
+                self.logger.log_file_excluded(name, reason.pattern)
             return
 
-        # Log modification
-        self.logger.log_file_modified(file_path.name)
-        console.print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] File modified: {file_path.name}")
+        self.logger.log_file_changed(name, change)
+        console.print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] File {change}: {name}", markup=False)
 
-        # Update timestamp for this file (extends debounce window if already pending)
-        self.pending_files[file_path] = time.time()
+        # Update timestamp for this file (extends debounce window if already pending).
+        # Popping first lets a case-only rename replace the old spelling, which Windows paths treat as the same key.
+        with self._pending_lock:
+            self.pending_files.pop(file_path, None)
+            self.pending_files[file_path] = time.time()
+
+    def _remove_pending(self, file_path: Path, event_time: float) -> None:
+        """Remove file_path from the pending files unless an event newer than event_time arrived meanwhile."""
+        with self._pending_lock:
+            if self.pending_files.get(file_path) == event_time:
+                del self.pending_files[file_path]
 
     def process_pending_files(self) -> None:
         """Process pending files that have passed the debounce window."""
         now = time.time()
-        files_to_backup = []
 
-        # Find files that have passed debounce window
-        for file_path, event_time in list(self.pending_files.items()):
-            if now - event_time >= self.debounce_seconds:
-                files_to_backup.append(file_path)
+        # Find files that have passed debounce window; the copy below runs without the lock
+        with self._pending_lock:
+            files_to_backup = [(file_path, event_time) for file_path, event_time in self.pending_files.items() if now - event_time >= self.debounce_seconds]
 
         # Backup files that passed debounce
-        for file_path in files_to_backup:
+        for file_path, event_time in files_to_backup:
             try:
                 # Check if file still exists and is not locked
                 if not file_path.exists():
-                    del self.pending_files[file_path]
+                    self._remove_pending(file_path, event_time)
                     continue
 
+                # Read the mtime before the copy: a write during the copy must stay "modified" for the next backup
+                mtime = file_path.stat().st_mtime
                 timestamp = datetime.now()
                 backup_path = self.backup_manager.backup_file(file_path, timestamp)
 
                 # Update state
-                self.state.update_file_timestamp(file_path.name, file_path.stat().st_mtime)
+                self.state.update_file_timestamp(file_path.name, mtime)
                 self.state.save()
 
                 # Log success
                 self.logger.log_file_backed_up(file_path.name, backup_path.name)
-                console.print(f"[{timestamp.strftime('%Y-%m-%d %H:%M:%S')}] Backing up: {file_path.name} -> {backup_path.name} [green]OK[/green]")
+                console.print(Text.assemble(f"[{timestamp.strftime('%Y-%m-%d %H:%M:%S')}] Backing up: {file_path.name} -> {backup_path.name} ", ("OK", "green")))
 
                 self.backed_up_count += 1
 
-                # Remove from pending
-                del self.pending_files[file_path]
+                # Remove from pending; an event during the copy keeps the file pending for the next debounce
+                self._remove_pending(file_path, event_time)
 
             except PermissionError:
                 self.logger.log_error(f"Permission denied: {file_path.name}")
-                console.print(f"[red]ERROR[/red] Permission denied: {file_path.name}")
-                del self.pending_files[file_path]
+                console.print(Text.assemble(("ERROR", "red"), f" Permission denied: {file_path.name}"))
+                self._remove_pending(file_path, event_time)
 
             except OSError:
                 self.logger.log_file_locked(file_path.name)
-                console.print(f"[yellow]WARNING[/yellow] File locked, skipping: {file_path.name}")
-                del self.pending_files[file_path]
+                console.print(Text.assemble(("WARNING", "yellow"), f" File locked, skipping: {file_path.name}"))
+                self._remove_pending(file_path, event_time)
 
 
 @app.command()
@@ -523,12 +580,13 @@ def watch(
         [],
         "--exclude",
         metavar="PATTERN",
-        help="File/directory patterns to exclude (can be repeated). Replaces the saved patterns; if not given, the saved patterns are used",
+        callback=check_exclude_values,
+        help="File-name patterns to exclude (can be repeated). Replaces the saved patterns; if not given, the saved patterns are used",
     ),
     debounce: int | None = typer.Option(
         None,
         "--debounce",
-        help="Seconds to wait after modification before backup. Replaces the saved value; if not given, the saved value is used",
+        help="Seconds to wait after a file is modified, created or moved in, before backup. Replaces the saved value; if not given, the saved value is used",
         min=0,
         show_default=DEBOUNCE_DEFAULT_HELP,
     ),
@@ -536,9 +594,9 @@ def watch(
     """Continuously monitor and backup files in real-time.
 
     This command starts a file system monitor that watches the source directory
-    for changes. When a file is modified, it automatically creates a timestamped
-    backup after a short delay (debounce). The monitor runs until you press
-    Ctrl+C.
+    for changes. When a file is modified, created or moved into it, it
+    automatically creates a timestamped backup after a short delay (debounce).
+    The monitor runs until you press Ctrl+C.
 
     Examples:
 
@@ -554,7 +612,7 @@ def watch(
     Tips:
       - Use Ctrl+C to stop monitoring
       - Debounce prevents backing up files that are still being written
-      - Hidden directories (starting with .) are automatically excluded
+      - Subdirectories are ignored; hidden files (starting with .) are excluded
     """
     logger = None
     try:
@@ -615,9 +673,9 @@ def watch(
         observer.schedule(event_handler, str(source), recursive=False)
         observer.start()
 
-        console.print(f"[green]Starting file system monitor for {source}[/green]")
+        console.print(Text(f"Starting file system monitor for {source}", style="green"))
         console.print("Watching for changes... (Press Ctrl+C to stop)")
-        console.print(f"Logging to: {destination / 'backup.log'}\n")
+        console.print(f"Logging to: {destination / 'backup.log'}\n", markup=False)
 
         try:
             while True:
@@ -634,7 +692,7 @@ def watch(
         observer.join()
 
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(Text.assemble(("Error:", "red"), f" {e}"))
         raise typer.Exit(code=1) from None
     finally:
         if logger is not None:
@@ -728,6 +786,8 @@ def _add_pattern(draft: SettingsDraft) -> None:
     pattern = Prompt.ask("Pattern to add", default="", show_default=False, console=console).strip()
     if not pattern:
         _say("No pattern given; the list is unchanged.")
+    elif (problem := pattern_problem(pattern)) is not None:
+        _say(f"{pattern} is not usable: {problem}; the list is unchanged.")
     elif pattern == STATE_FILE_NAME:
         _say(f"{STATE_FILE_NAME} is always excluded; the list is unchanged.")
     elif pattern in draft.patterns:

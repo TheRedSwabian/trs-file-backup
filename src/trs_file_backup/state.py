@@ -5,6 +5,8 @@ import json
 import time
 from pathlib import Path
 
+from trs_file_backup.patterns import is_usable_pattern
+
 REPLACE_ATTEMPTS = 5
 REPLACE_RETRY_DELAY_SECONDS = 0.1
 
@@ -72,7 +74,8 @@ class StateManager:
             source_path=Path(data["source_path"]),
             destination_path=path.parent,
             debounce_seconds=data["debounce_seconds"],
-            excluded_patterns=data["excluded_patterns"],
+            # Older versions saved patterns that cannot be used as file-name patterns; drop them (spec AC-4.9)
+            excluded_patterns=[pattern for pattern in data["excluded_patterns"] if is_usable_pattern(pattern)],
             files=data["files"],
         )
 

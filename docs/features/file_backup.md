@@ -51,7 +51,8 @@ The tool shall be implemented as a Python command-line application with comprehe
 - AC-3.2: The state file shall be stored in the destination (backup) directory
 - AC-3.3: The state file shall contain both source and destination directory paths
 - AC-3.4: On first run (no state file exists), all files shall be backed up
-- AC-3.5: The state file shall be updated after each successful backup operation
+- AC-3.5: The state file shall be updated after each successful backup operation.
+  It shall store the modification time read before the copy, so a version written during the copy is backed up by the next run or debounce
 - AC-3.6: The state file shall store the exclusion patterns and the debounce delay (the saved settings);
   `init` saves the values given to it, and `config` changes them (FR-7)
 - AC-3.7: `run` and `watch` shall use the saved exclusion patterns when `--exclude` is not given, and the saved debounce delay when `--debounce` is not given
@@ -87,25 +88,36 @@ The tool shall be implemented as a Python command-line application with comprehe
 - AC-4.6: Exclusion patterns shall be matched against the filename only (not paths)
 - AC-4.7: All subdirectories are automatically excluded (only top-level files are processed)
 - AC-4.8: AC-3.6 to AC-3.10 define how exclusion patterns are saved and which patterns `run` and `watch` use
+- AC-4.9: `init`, `run` and `watch` shall use an `--exclude` value without leading and trailing whitespace, as `config` does (AC-7.6).
+  A pattern that is empty or consists of whitespace only, contains a path separator (`/` or `\`), or is `.` or `..`
+  can never match a bare file name (AC-4.6) and shall be rejected; every other pattern is accepted.
+  `init`, `run` and `watch` shall reject it with a usage error that names `--exclude`, the pattern and the reason (exit code 2),
+  before anything is written.
+  Such a pattern in an existing state file, saved by an older version, shall be dropped silently when the state file is read,
+  because it cannot be used as a file-name pattern.
 
 ### FR-5: Real-Time File System Monitoring
 
 **ID:** FR-5
 **Title:** Watch mode for continuous file monitoring
-**Description:** The system shall provide a watch mode that continuously monitors the source directory and automatically backs up files when they are modified.
+**Description:** The system shall provide a watch mode that continuously monitors the source directory
+and automatically backs up files when they are modified, created or moved into it.
 
 **Acceptance Criteria:**
 
 - AC-5.1: The system shall provide a `watch` command that runs continuously
-- AC-5.2: The system shall detect file modification events in real-time using file system monitoring
+- AC-5.2: The system shall detect file modification, creation and move events in real-time using file system monitoring
 - AC-5.3: The system shall trigger a backup automatically when a file is modified
 - AC-5.4: The system shall wait for a file to be fully written before backing it up (debounce mechanism)
-- AC-5.5: The system shall use the configured debounce delay, default 2 seconds (no backup if the file is modified again within that delay).
+- AC-5.5: The system shall use the configured debounce delay, default 2 seconds (no backup if another event for the file arrives within that delay).
   AC-3.6 to AC-3.9 define which delay is used
 - AC-5.6: The system shall handle files that are locked or being written by another process (skip with warning)
 - AC-5.7: The system shall log each backup operation with timestamp
 - AC-5.8: The system shall continue running until explicitly stopped by the user (Ctrl+C)
 - AC-5.9: The watch mode shall respect all exclusion patterns defined for the backup
+- AC-5.10: A file created in the source directory, or moved or renamed into it, shall trigger a backup like a modified file (AC-5.3 to AC-5.9).
+  For a move or rename, the new name decides; a file moved from the source directory into a subdirectory is ignored (AC-1.3).
+  The console and the log name the kind of event: `File modified: <name>`, `File created: <name>` or `File moved: <name>`
 
 ### FR-6: Activity Logging
 
@@ -131,7 +143,9 @@ The tool shall be implemented as a Python command-line application with comprehe
   and the exclusion patterns and debounce delay the session actually uses (after AC-3.7 to AC-3.10 are applied)
 - AC-6.14: Each session shall end with a session summary logging completion status and statistics
 - AC-6.15: During a session, settings (paths, excludes) shall not be logged repeatedly
-- AC-6.16: All excluded files encountered during a session shall be logged with level `WARNING`
+- AC-6.16: All excluded files encountered during a `watch` session shall be logged with level `WARNING`; `run` logs no excluded files
+- AC-6.17: The log entry for an excluded file (AC-6.16) shall give the reason: `File excluded: <name> (hidden file)` for a hidden file (AC-4.1),
+  also for the state file, and `File excluded: <name> (matches: <pattern>)` with the first exclusion pattern that matches the name
 
 **Log Level Usage:**
 
@@ -156,8 +170,9 @@ The tool shall be implemented as a Python command-line application with comprehe
   change the debounce delay, add a pattern, remove a pattern by its number, clear all user patterns, save and quit, quit without saving
 - AC-7.4: The source directory shall be read-only, and the list of tracked files shall be neither shown nor changed
 - AC-7.5: A new debounce delay shall be a whole number of 0 or more seconds; a negative number shall be rejected and asked for again
-- AC-7.6: A new pattern shall be stored without leading and trailing spaces.
-  Adding a pattern that is already listed, or `.backup_state.json`, shall leave the list unchanged and say so; an empty pattern shall be rejected.
+- AC-7.6: A new pattern shall be stored without leading and trailing whitespace.
+  Adding a pattern that is already listed, or `.backup_state.json`, shall leave the list unchanged and say so;
+  a pattern that AC-4.9 rejects shall be rejected with its reason, and the list stays unchanged.
 - AC-7.7: Removing by a number that is not in the list shall print a message and leave the list unchanged; the menu continues, `config` does not exit
 - AC-7.8: Clearing shall remove all user patterns; `.backup_state.json` stays excluded (AC-3.10)
 - AC-7.9: After each change, the menu shall show the settings again and mark what differs from the state file: a changed delay, a new pattern, a removed pattern
@@ -202,6 +217,7 @@ The tool shall be implemented as a Python command-line application with comprehe
 - Users shall be able to use the tool without reading external documentation
 - The console output of all commands shall use ASCII markers (`OK`, `ERROR`, `WARNING`, `->`), so it stays readable on any console code page
 - A character in a path that the console encoding cannot show shall be printed as `?`; it shall not end the command, also when the output goes into a pipe or a file
+- File names, paths and error messages shall appear on the console exactly as they are: text such as `[red]` or `:fire:` in a name is printed, not read as formatting or emoji code
 
 ### NFR-4: Help System
 
@@ -279,7 +295,7 @@ trs-file-backup run --help
 
 - `--source`: Path to the source directory to monitor (required)
 - `--destination`: Path to the destination backup directory (required)
-- `--exclude`: Pattern for files/directories to exclude (optional, can be specified multiple times).
+- `--exclude`: File-name pattern to exclude, see AC-4.6 and AC-4.9 (optional, can be specified multiple times).
   It replaces the saved patterns; without it, the saved patterns are used (AC-3.7, AC-3.8)
 - `--debounce`: Seconds to wait before backup (optional).
   It replaces the saved value; without it, the saved value is used, or 2 if none is saved (AC-3.7 to AC-3.9)
@@ -299,7 +315,7 @@ Usage: trs-file-backup run [OPTIONS]
 Options:
   --source PATH           Source directory to monitor [required]
   --destination PATH      Destination backup directory [required]
-  --exclude PATTERN       File/directory patterns to exclude (can be repeated).
+  --exclude PATTERN       File-name patterns to exclude (can be repeated).
                           Replaces the saved patterns; if not given, the saved
                           patterns are used
   --debounce INTEGER      Seconds to wait before backup. Replaces the saved
@@ -326,13 +342,15 @@ Examples:
 
 ```text
 Scanning source directory: C:\Projects\MyApp
-Found 15 modified files
+Found 4 modified files
 Backing up files...
   OK main.py -> main_2026_01_13__14_30_22.py
   OK readme.md -> readme_2026_01_13__14_30_25.md
   OK config.yaml -> config_2026_01_13__14_30_26.yaml
-  ...
-Successfully backed up 15 files to C:\Backup\MyApp
+  WARNING File locked, skipping: database.db
+
+Successfully backed up 3 files to C:\Backup\MyApp
+Failed: 1 files
 Logging to: C:\Backup\MyApp\backup.log
 ```
 
@@ -345,13 +363,13 @@ Logging to: C:\Backup\MyApp\backup.log
 [2026-01-13 14:30:20] [INFO] Destination: C:\Backup\MyApp
 [2026-01-13 14:30:20] [INFO] Exclusion patterns: .backup_state.json, *.log, temp_*
 [2026-01-13 14:30:20] [INFO] Debounce delay: 2 seconds
-[2026-01-13 14:30:20] [INFO] Found 15 modified files
+[2026-01-13 14:30:20] [INFO] Found 4 modified files
 [2026-01-13 14:30:22] [INFO] Backed up: main.py → main_2026_01_13__14_30_22.py
 [2026-01-13 14:30:25] [INFO] Backed up: readme.md → readme_2026_01_13__14_30_25.md
 [2026-01-13 14:30:26] [INFO] Backed up: config.yaml → config_2026_01_13__14_30_26.yaml
-[2026-01-13 14:30:27] [WARNING] File excluded: temp.log (matches: *.log)
 [2026-01-13 14:30:28] [WARNING] File locked, skipping: database.db
-[2026-01-13 14:30:30] [INFO] Backup operation completed: 13 of 15 files backed up
+[2026-01-13 14:30:30] [INFO] Backup operation completed: 3 of 4 files backed up
+[2026-01-13 14:30:30] [INFO] Session summary: 3 of 4 files backed up
 [2026-01-13 14:30:30] [INFO] ========== Session Ended ==========
 ```
 
@@ -371,7 +389,7 @@ trs-file-backup init --help
 
 - `--source`: Path to the source directory (required)
 - `--destination`: Path to the destination backup directory (required)
-- `--exclude`: Pattern for files/directories to exclude (optional, can be specified multiple times)
+- `--exclude`: File-name pattern to exclude, see AC-4.6 and AC-4.9 (optional, can be specified multiple times)
 - `--debounce`: Seconds to wait before backup (optional, default: 2)
 
 **Help Output:**
@@ -388,7 +406,7 @@ Usage: trs-file-backup init [OPTIONS]
 Options:
   --source PATH           Source directory to monitor [required]
   --destination PATH      Destination backup directory [required]
-  --exclude PATTERN       File/directory patterns to exclude (can be repeated)
+  --exclude PATTERN       File-name patterns to exclude (can be repeated)
   --debounce INTEGER      Seconds to wait before backup [default: 2]
   --help, -h             Show this message and exit
 
@@ -429,7 +447,7 @@ Next run will back up all files.
 
 ### Command: `watch`
 
-**Purpose:** Continuously monitor source directory and backup files automatically when modified
+**Purpose:** Continuously monitor source directory and backup files automatically when modified, created or moved into it (AC-5.10)
 
 **Syntax:**
 
@@ -443,9 +461,9 @@ trs-file-backup watch --help
 
 - `--source`: Path to the source directory to monitor (required)
 - `--destination`: Path to the destination backup directory (required)
-- `--exclude`: Pattern for files/directories to exclude (optional, can be specified multiple times).
+- `--exclude`: File-name pattern to exclude, see AC-4.6 and AC-4.9 (optional, can be specified multiple times).
   It replaces the saved patterns; without it, the saved patterns are used (AC-3.7, AC-3.8)
-- `--debounce`: Seconds to wait after file modification before backup (optional).
+- `--debounce`: Seconds to wait after a file is modified, created or moved in, before backup (optional).
   It replaces the saved value; without it, the saved value is used, or 2 if none is saved (AC-3.7 to AC-3.9)
 
 **Help Output:**
@@ -456,19 +474,20 @@ Usage: trs-file-backup watch [OPTIONS]
   Continuously monitor and backup files in real-time
 
   This command starts a file system monitor that watches the source directory
-  for changes. When a file is modified, it automatically creates a timestamped
-  backup after a short delay (debounce). The monitor runs until you press
-  Ctrl+C.
+  for changes. When a file is modified, created or moved into it, it
+  automatically creates a timestamped backup after a short delay (debounce).
+  The monitor runs until you press Ctrl+C.
 
 Options:
   --source PATH           Source directory to monitor [required]
   --destination PATH      Destination backup directory [required]
-  --exclude PATTERN       File/directory patterns to exclude (can be repeated).
+  --exclude PATTERN       File-name patterns to exclude (can be repeated).
                           Replaces the saved patterns; if not given, the saved
                           patterns are used
-  --debounce INTEGER      Seconds to wait after modification before backup.
-                          Replaces the saved value; if not given, the saved
-                          value is used [default: (saved value, else 2)]
+  --debounce INTEGER      Seconds to wait after a file is modified, created
+                          or moved in, before backup. Replaces the saved
+                          value; if not given, the saved value is used
+                          [default: (saved value, else 2)]
   --help, -h             Show this message and exit
 
 Examples:
@@ -484,7 +503,7 @@ Examples:
 Tips:
   - Use Ctrl+C to stop monitoring
   - Debounce prevents backing up files that are still being written
-  - Hidden directories (starting with .) are automatically excluded
+  - Subdirectories are ignored; hidden files (starting with .) are excluded
 ```
 
 **Command Output:**
@@ -500,7 +519,8 @@ Logging to: C:\Backup\MyApp\backup.log
 [2026-01-13 14:35:22] File modified: readme.md
 [2026-01-13 14:35:24] Backing up: readme.md -> readme_2026_01_13__14_35_24.md OK
 
-[2026-01-13 14:38:10] File modified: temp.log (excluded)
+[2026-01-13 14:39:05] File created: notes.txt
+[2026-01-13 14:39:07] Backing up: notes.txt -> notes_2026_01_13__14_39_07.txt OK
 
 Ctrl+C detected. Stopping file system monitor...
 ```
@@ -520,8 +540,10 @@ Ctrl+C detected. Stopping file system monitor...
 [2026-01-13 14:35:22] [INFO] File modified: readme.md
 [2026-01-13 14:35:24] [INFO] Backed up: readme.md → readme_2026_01_13__14_35_24.md
 [2026-01-13 14:38:10] [WARNING] File excluded: temp.log (matches: *.log)
+[2026-01-13 14:39:05] [INFO] File created: notes.txt
+[2026-01-13 14:39:07] [INFO] Backed up: notes.txt → notes_2026_01_13__14_39_07.txt
 [2026-01-13 14:40:00] [INFO] Watch mode stopped by user (Ctrl+C)
-[2026-01-13 14:40:00] [INFO] Session summary: 2 files backed up
+[2026-01-13 14:40:00] [INFO] Session summary: 3 of 3 files backed up
 [2026-01-13 14:40:00] [INFO] ========== Session Ended ==========
 ```
 
@@ -688,12 +710,12 @@ A session has:
 [2026-01-13 14:30:20] [INFO] Destination: C:\Backup\MyApp
 [2026-01-13 14:30:20] [INFO] Exclusion patterns: .backup_state.json, *.log
 [2026-01-13 14:30:20] [INFO] Debounce delay: 2 seconds
-[2026-01-13 14:30:20] [INFO] Found 5 modified files
+[2026-01-13 14:30:20] [INFO] Found 3 modified files
 [2026-01-13 14:30:22] [INFO] Backed up: main.py → main_2026_01_13__14_30_22.py
-[2026-01-13 14:30:25] [WARNING] File excluded: debug.log (matches: *.log)
 [2026-01-13 14:30:26] [ERROR] Permission denied: secure.dat
 [2026-01-13 14:30:28] [INFO] Backed up: readme.md → readme_2026_01_13__14_30_28.md
-[2026-01-13 14:30:30] [INFO] Backup operation completed: 2 of 5 files backed up
+[2026-01-13 14:30:30] [INFO] Backup operation completed: 2 of 3 files backed up
+[2026-01-13 14:30:30] [INFO] Session summary: 2 of 3 files backed up
 [2026-01-13 14:30:30] [INFO] ========== Session Ended ==========
 
 [2026-01-13 16:00:00] [INFO] ========== Session Started ==========
@@ -706,7 +728,7 @@ A session has:
 [2026-01-13 16:15:30] [INFO] File modified: config.yaml
 [2026-01-13 16:15:32] [INFO] Backed up: config.yaml → config_2026_01_13__16_15_32.yaml
 [2026-01-13 16:20:00] [INFO] Watch mode stopped by user (Ctrl+C)
-[2026-01-13 16:20:00] [INFO] Session summary: 1 file backed up
+[2026-01-13 16:20:00] [INFO] Session summary: 1 of 1 files backed up
 [2026-01-13 16:20:00] [INFO] ========== Session Ended ==========
 ```
 
@@ -734,15 +756,15 @@ A session has:
 - Backup filename pattern: see AC-2.2
 - Implement atomic state file updates (write to temp file, then rename)
 - Use `pathlib.Path.match()` for pattern matching with wildcard support
-- Exclusion patterns are evaluated against filenames only (not paths)
+- Exclusion patterns: AC-4.6 (file name only) and AC-4.9 (which patterns are accepted)
 
 ### Watch Mode (FR-5)
 
-- Monitor only the top-level directory (do not watch subdirectories recursively)
+- Top-level directory only: AC-1.3 and AC-4.7; the observer is scheduled with `recursive=False`
 - Implement debouncing to wait for files to finish writing
-- Debounce delay is configurable via `--debounce` parameter (default: 2 seconds)
+- Debounce delay and its default: AC-5.5
 - The debounce delay is saved in the state file; AC-3.6 to AC-3.9 define which delay `run` and `watch` use
-- Use a timer-based approach: reset timer on each modification event, trigger backup when timer expires
+- Use a timer-based approach: reset the timer on each event that AC-5.5 and AC-5.10 name, trigger backup when timer expires
 - Handle file locking gracefully using try-except around file operations
 - Log skipped files (locked/excluded) separately from successful backups
 - Ensure clean shutdown on SIGINT (Ctrl+C)
@@ -769,7 +791,7 @@ A session has:
   - Session start marker and configuration (command, paths, excludes)
   - Operation logs (backups, exclusions, errors)
   - Session end marker and summary
-- Log excluded files with pattern match information
+- Log excluded files with the reason defined in AC-6.17
 - Settings are logged once per session at start, not repeated during operations
 
 ### Dependencies

@@ -117,6 +117,21 @@ class TestBackupLogger:
         assert "excluded" in call_str.lower()
         assert "debug.log" in call_str
 
+    def test_log_hidden_file_excluded(self, mocker: MockFixture) -> None:
+        """A hidden file is logged with the reason "hidden file", level WARNING (spec AC-6.17)."""
+        from trs_file_backup.logger import BackupLogger
+
+        mock_logger = Mock()
+        mock_logger.handlers = []
+        _patch_backup_logger(mocker, mock_logger)
+        mocker.patch("pathlib.Path.mkdir")
+        mocker.patch("logging.FileHandler")
+
+        logger = BackupLogger(Path("/dest"))
+        logger.log_hidden_file_excluded(".gitignore")
+
+        mock_logger.warning.assert_called_once_with("File excluded: .gitignore (hidden file)")
+
     def test_log_file_locked(self, mocker: MockFixture) -> None:
         """Test logging locked file warning."""
         from trs_file_backup.logger import BackupLogger
@@ -152,8 +167,9 @@ class TestBackupLogger:
         call_str = str(mock_logger.error.call_args)
         assert "Permission denied" in call_str
 
-    def test_log_file_modified_watch_mode(self, mocker: MockFixture) -> None:
-        """Test logging file modification in watch mode."""
+    @pytest.mark.parametrize("change", ["modified", "created", "moved"])
+    def test_log_file_changed_watch_mode(self, mocker: MockFixture, change: str) -> None:
+        """Test logging a file event in watch mode with the kind of change."""
         from trs_file_backup.logger import BackupLogger
 
         mock_logger = Mock()
@@ -163,12 +179,9 @@ class TestBackupLogger:
         mocker.patch("logging.FileHandler")
 
         logger = BackupLogger(Path("/dest"))
-        logger.log_file_modified("config.yaml")
+        logger.log_file_changed("config.yaml", change)
 
-        mock_logger.info.assert_called()
-        call_str = str(mock_logger.info.call_args)
-        assert "modified" in call_str.lower()
-        assert "config.yaml" in call_str
+        mock_logger.info.assert_called_once_with(f"File {change}: config.yaml")
 
     def test_log_watch_started(self, mocker: MockFixture) -> None:
         """Test logging watch mode started."""

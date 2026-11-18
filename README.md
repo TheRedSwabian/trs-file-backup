@@ -72,6 +72,8 @@ trs-file-backup run --help
 `init` saves the exclusion patterns and the debounce delay in `.backup_state.json`.
 A later `run` or `watch` without `--exclude` or `--debounce` uses the saved value.
 Giving the option replaces the saved value; it is not added to the saved patterns.
+Patterns are matched against the file name only; a pattern that can never match one, such as `logs/*.log`, is rejected
+(the full rule is AC-4.9 in the [feature specification](docs/features/file_backup.md)).
 The new value is saved, also when `run` finds no modified files; only `run --dry-run` never writes the state file.
 Without a state file, the defaults apply: no patterns of your own and a debounce delay of 2 seconds.
 The state file belongs to the folder given with `--destination`: a copied or moved backup folder works on its own state file and never writes into the old folder.

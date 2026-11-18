@@ -2,10 +2,13 @@
 
 import importlib
 import importlib.metadata
+import io
 import json
+import os
 import re
 import sys
 from pathlib import Path
+from typing import Any
 from unittest.mock import Mock, patch
 
 import click
@@ -192,6 +195,48 @@ class TestRunCommand:
         )
 
         assert result.exit_code == 0
+
+    def test_run_state_keeps_the_mtime_of_the_backed_up_version(self, mocker: MockFixture, tmp_path: Path) -> None:
+        """A write during the copy must not mark the newer version as backed up (spec AC-3.5)."""
+        from trs_file_backup.backup import BackupManager
+        from trs_file_backup.main import app
+
+        source = tmp_path / "source"
+        source.mkdir()
+        dest = tmp_path / "dest"
+        notes = source / "notes.txt"
+        notes.write_text("first version")
+        os.utime(notes, (1000.0, 1000.0))
+        mocker.patch("time.sleep")
+
+        def write_during_copy(path: Path, timestamp: object) -> Path:
+            notes.write_text("second version")
+            os.utime(notes, (2000.0, 2000.0))
+            return dest / "notes_backup.txt"
+
+        mocker.patch.object(BackupManager, "backup_file", side_effect=write_during_copy)
+
+        result = runner.invoke(app, ["run", "--source", str(source), "--destination", str(dest)])
+
+        assert result.exit_code == 0
+        saved = json.loads((dest / ".backup_state.json").read_text(encoding="utf-8"))
+        assert saved["files"] == {"notes.txt": 1000.0}
+
+    @pytest.mark.parametrize("dry_run", [False, True], ids=["run", "dry-run"])
+    def test_run_prints_file_names_literally(self, mocker: MockFixture, tmp_path: Path, dry_run: bool) -> None:
+        """A file name that looks like Rich markup must be printed as it is."""
+        from trs_file_backup.main import app
+
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "[red]notes.txt").write_text("content")
+        mocker.patch("time.sleep")
+
+        result = runner.invoke(app, ["run", "--source", str(source), "--destination", str(tmp_path / "dest"), *(["--dry-run"] if dry_run else [])])
+
+        assert result.exit_code == 0
+        expected = "Would backup: [red]notes.txt -> [red]notes_" if dry_run else "OK [red]notes.txt -> [red]notes_"
+        assert expected in click.unstyle(result.output)
 
     def test_run_with_exclusion_patterns(self, mocker: MockFixture, tmp_path: Path) -> None:
         """Test run command with exclusion patterns."""
@@ -903,6 +948,14 @@ class TestConfigMenu:
         assert "stop" in result.output.lower()
         result.output.encode("ascii")
 
+    def test_menu_shows_an_emoji_code_in_a_pattern_as_text(self, mocker: MockFixture, tmp_path: Path) -> None:
+        _, dest = _initialized(tmp_path, "--exclude", ":thumbs_up:*.log")
+
+        result = self._menu(mocker, dest, "q\n")
+
+        assert result.exit_code == 0, result.output
+        assert "1) :thumbs_up:*.log" in result.output
+
     def test_change_debounce_to_zero_and_save(self, mocker: MockFixture, tmp_path: Path) -> None:
         _, dest = _initialized(tmp_path, "--exclude", "*.log", "--debounce", "5")
 
@@ -965,7 +1018,17 @@ class TestConfigMenu:
         assert "2) *.tmp   (new)" in result.output
         assert _saved_settings(dest)[0] == [".backup_state.json", "*.log", "*.tmp"]
 
-    @pytest.mark.parametrize(("pattern", "message"), [("*.log", "already"), (".backup_state.json", "always"), ("", "no pattern")])
+    @pytest.mark.parametrize(
+        ("pattern", "message"),
+        [
+            ("*.log", "already"),
+            (".backup_state.json", "always"),
+            ("", "no pattern"),
+            ("logs/*.log", "logs/*.log is not usable: patterns are matched against the file name only"),
+            ("..", ".. is not usable"),
+            ("./", "./ is not usable"),
+        ],
+    )
     def test_add_duplicate_state_or_empty_pattern_leaves_list_unchanged(self, mocker: MockFixture, tmp_path: Path, pattern: str, message: str) -> None:
         _, dest = _initialized(tmp_path, "--exclude", "*.log")
 
@@ -1520,6 +1583,517 @@ class TestBackupEventHandler:
         state.update_file_timestamp.assert_called_once()
         state.save.assert_called_once()
         assert file_path not in handler.pending_files
+
+
+class TestNewAndMovedFiles:
+    """Watch mode backs up created and moved-in files (spec AC-5.10) and logs the real exclusion reason (spec AC-6.17)."""
+
+    @pytest.fixture
+    def source(self, tmp_path: Path) -> Path:
+        source = tmp_path / "source"
+        source.mkdir()
+        return source
+
+    @staticmethod
+    def _handler(source: Path, mocker: MockFixture, excluded_patterns: list[str] | None = None) -> tuple[Any, Mock, Mock]:
+        """Return a handler with a mocked backup manager and a logger that only accepts real BackupLogger methods."""
+        from trs_file_backup.logger import BackupLogger
+        from trs_file_backup.main import BackupEventHandler
+
+        manager = Mock()
+        manager.source_path = source
+        manager.excluded_patterns = excluded_patterns if excluded_patterns is not None else [".backup_state.json"]
+        manager.backup_file.side_effect = lambda path, timestamp: source.parent / f"backup_of_{path.name}"
+        logger = mocker.Mock(spec=BackupLogger)
+        mocker.patch("time.time", return_value=100.0)
+        return BackupEventHandler(manager, Mock(), logger, 2), manager, logger
+
+    @staticmethod
+    def _after_debounce(handler: Any, mocker: MockFixture) -> None:
+        mocker.patch("time.time", return_value=103.0)
+        handler.process_pending_files()
+
+    def test_created_file_is_backed_up_after_the_debounce(self, source: Path, mocker: MockFixture) -> None:
+        from watchdog.events import FileCreatedEvent
+
+        handler, manager, _ = self._handler(source, mocker)
+        new_file = source / "notes.txt"
+        new_file.write_text("first version")
+
+        handler.dispatch(FileCreatedEvent(str(new_file)))
+        assert new_file in handler.pending_files
+
+        self._after_debounce(handler, mocker)
+        manager.backup_file.assert_called_once()
+        assert manager.backup_file.call_args.args[0] == new_file
+
+    def test_created_then_modified_file_is_backed_up_once(self, source: Path, mocker: MockFixture) -> None:
+        from watchdog.events import FileCreatedEvent, FileModifiedEvent
+
+        handler, manager, _ = self._handler(source, mocker)
+        new_file = source / "notes.txt"
+        new_file.write_text("first version")
+
+        handler.dispatch(FileCreatedEvent(str(new_file)))
+        handler.dispatch(FileModifiedEvent(str(new_file)))
+        self._after_debounce(handler, mocker)
+
+        manager.backup_file.assert_called_once()
+
+    def test_created_file_is_logged_as_created(self, source: Path, mocker: MockFixture) -> None:
+        from watchdog.events import FileCreatedEvent
+
+        handler, _, logger = self._handler(source, mocker)
+        new_file = source / "notes.txt"
+        new_file.write_text("first version")
+
+        handler.dispatch(FileCreatedEvent(str(new_file)))
+
+        logger.log_file_changed.assert_called_once_with("notes.txt", "created")
+
+    def test_renamed_file_is_queued_under_its_destination(self, source: Path, mocker: MockFixture) -> None:
+        from watchdog.events import FileMovedEvent
+
+        handler, manager, logger = self._handler(source, mocker)
+        old_file = source / "draft.txt"
+        new_file = source / "report.txt"
+        new_file.write_text("content")
+
+        handler.dispatch(FileMovedEvent(str(old_file), str(new_file)))
+
+        assert list(handler.pending_files) == [new_file]
+        logger.log_file_changed.assert_called_once_with("report.txt", "moved")
+        self._after_debounce(handler, mocker)
+        assert manager.backup_file.call_args.args[0] == new_file
+
+    def test_hidden_temp_file_renamed_to_visible_name_is_queued(self, source: Path, mocker: MockFixture) -> None:
+        from watchdog.events import FileMovedEvent
+
+        handler, _, logger = self._handler(source, mocker)
+        new_file = source / "doc.txt"
+        new_file.write_text("saved by an editor")
+
+        handler.dispatch(FileMovedEvent(str(source / ".~doc.tmp"), str(new_file)))
+
+        assert list(handler.pending_files) == [new_file]
+        logger.log_hidden_file_excluded.assert_not_called()
+
+    def test_pending_file_renamed_before_the_debounce_ends_is_backed_up_once_under_the_new_name(self, source: Path, mocker: MockFixture) -> None:
+        from watchdog.events import FileModifiedEvent, FileMovedEvent
+
+        handler, manager, logger = self._handler(source, mocker)
+        old_file = source / "a.txt"
+        old_file.write_text("content")
+        handler.dispatch(FileModifiedEvent(str(old_file)))
+
+        new_file = old_file.rename(source / "b.txt")
+        handler.dispatch(FileMovedEvent(str(old_file), str(new_file)))
+        self._after_debounce(handler, mocker)
+
+        manager.backup_file.assert_called_once()
+        assert manager.backup_file.call_args.args[0] == new_file
+        assert handler.pending_files == {}
+        logger.log_error.assert_not_called()
+
+    def test_case_only_rename_of_a_pending_file_is_backed_up_under_the_new_name(self, source: Path, mocker: MockFixture) -> None:
+        """On Windows both spellings are one dict key; the new spelling must replace the old one (AC-5.10)."""
+        from watchdog.events import FileModifiedEvent, FileMovedEvent
+
+        handler, manager, _ = self._handler(source, mocker)
+        old_file = source / "Report.txt"
+        old_file.write_text("content")
+        handler.dispatch(FileModifiedEvent(str(old_file)))
+
+        new_file = old_file.rename(source / "report.txt")
+        handler.dispatch(FileMovedEvent(str(old_file), str(new_file)))
+        self._after_debounce(handler, mocker)
+
+        manager.backup_file.assert_called_once()
+        assert manager.backup_file.call_args.args[0].name == "report.txt"
+
+    def test_event_during_the_backup_keeps_the_file_pending_for_a_second_backup(self, source: Path, mocker: MockFixture) -> None:
+        """A version written while the copy runs must not be lost (spec AC-5.4, AC-5.5)."""
+        from watchdog.events import FileCreatedEvent, FileModifiedEvent
+
+        handler, manager, _ = self._handler(source, mocker)
+        new_file = source / "notes.txt"
+        new_file.write_text("first version")
+        handler.dispatch(FileCreatedEvent(str(new_file)))
+
+        def write_during_copy(path: Path, timestamp: object) -> Path:
+            if manager.backup_file.call_count == 1:
+                handler.dispatch(FileModifiedEvent(str(new_file)))
+            return source.parent / f"backup_{manager.backup_file.call_count}_of_{path.name}"
+
+        manager.backup_file.side_effect = write_during_copy
+        self._after_debounce(handler, mocker)  # time 103.0: first backup; the event during it is stamped 103.0
+
+        manager.backup_file.assert_called_once()
+        assert handler.pending_files == {new_file: 103.0}
+
+        mocker.patch("time.time", return_value=106.0)
+        handler.process_pending_files()
+
+        assert manager.backup_file.call_count == 2
+        assert handler.pending_files == {}
+
+    @pytest.mark.parametrize("subpath", [("sub", "a.txt"), ("sub", "deeper", "a.txt")], ids=["subdirectory", "not-on-disk"])
+    def test_file_moved_into_a_subdirectory_is_ignored(self, source: Path, mocker: MockFixture, subpath: tuple[str, ...]) -> None:
+        """The macOS emitter can report a move from the top level into a subdirectory as a moved event (AC-1.3).
+
+        The decision uses the paths only, so it also holds when the file is gone already.
+        """
+        from watchdog.events import FileMovedEvent
+
+        handler, _, logger = self._handler(source, mocker)
+        (source / "sub").mkdir()
+        moved_file = source.joinpath(*subpath)
+        if subpath == ("sub", "a.txt"):
+            moved_file.write_text("content")
+
+        handler.dispatch(FileMovedEvent(str(source / "a.txt"), str(moved_file)))
+
+        assert handler.pending_files == {}
+        logger.log_file_changed.assert_not_called()
+
+    def test_moved_file_spelled_another_way_is_queued(self, source: Path, mocker: MockFixture) -> None:
+        from watchdog.events import FileMovedEvent
+
+        handler, _, _ = self._handler(source, mocker)
+        (source / "sub").mkdir()
+        new_file = source / "report.txt"
+        new_file.write_text("content")
+
+        handler.dispatch(FileMovedEvent(str(source / "draft.txt"), str(source / "sub" / ".." / "report.txt")))
+
+        assert [path.name for path in handler.pending_files] == ["report.txt"]
+
+    def test_state_keeps_the_mtime_of_the_backed_up_version(self, source: Path, mocker: MockFixture) -> None:
+        """A write during the copy must not mark the newer version as backed up (spec AC-3.5)."""
+        from watchdog.events import FileCreatedEvent
+
+        handler, manager, _ = self._handler(source, mocker)
+        new_file = source / "notes.txt"
+        new_file.write_text("first version")
+        os.utime(new_file, (1000.0, 1000.0))
+        handler.dispatch(FileCreatedEvent(str(new_file)))
+
+        def write_during_copy(path: Path, timestamp: object) -> Path:
+            new_file.write_text("second version")
+            os.utime(new_file, (2000.0, 2000.0))
+            return source.parent / "backup_of_notes.txt"
+
+        manager.backup_file.side_effect = write_during_copy
+        self._after_debounce(handler, mocker)
+
+        handler.state.update_file_timestamp.assert_called_once_with("notes.txt", 1000.0)
+
+    def test_watch_console_prints_file_names_literally(self, source: Path, mocker: MockFixture) -> None:
+        """A file name that looks like Rich markup must be printed as it is."""
+        from rich.console import Console
+        from watchdog.events import FileCreatedEvent
+
+        output = io.StringIO()
+        mocker.patch("trs_file_backup.main.console", Console(file=output, width=300, color_system=None))
+        handler, _, _ = self._handler(source, mocker)
+        new_file = source / "[red]notes.txt"
+        new_file.write_text("content")
+
+        handler.dispatch(FileCreatedEvent(str(new_file)))
+        self._after_debounce(handler, mocker)
+
+        assert "File created: [red]notes.txt" in output.getvalue()
+        assert "Backing up: [red]notes.txt -> backup_of_[red]notes.txt OK" in output.getvalue()
+
+    def test_created_and_moved_directories_are_ignored(self, source: Path, mocker: MockFixture) -> None:
+        from watchdog.events import DirCreatedEvent, DirMovedEvent
+
+        handler, _, logger = self._handler(source, mocker)
+        subdir = source / "sub"
+        subdir.mkdir()
+
+        handler.dispatch(DirCreatedEvent(str(subdir)))
+        handler.dispatch(DirMovedEvent(str(source / "old"), str(subdir)))
+
+        assert handler.pending_files == {}
+        logger.log_file_changed.assert_not_called()
+
+    def test_hidden_file_is_logged_as_hidden_file(self, source: Path, mocker: MockFixture) -> None:
+        from watchdog.events import FileModifiedEvent
+
+        handler, _, logger = self._handler(source, mocker, [".backup_state.json", "*.log"])
+        hidden_file = source / ".gitignore"
+        hidden_file.write_text("*.pyc")
+
+        handler.dispatch(FileModifiedEvent(str(hidden_file)))
+
+        logger.log_hidden_file_excluded.assert_called_once_with(".gitignore")
+        logger.log_file_excluded.assert_not_called()
+        assert handler.pending_files == {}
+
+    def test_state_file_is_logged_as_hidden_file(self, source: Path, mocker: MockFixture) -> None:
+        """The state file starts with a dot, so the hidden-file rule (AC-4.1) is the reason given."""
+        from watchdog.events import FileCreatedEvent
+
+        handler, _, logger = self._handler(source, mocker)
+        state_file = source / ".backup_state.json"
+        state_file.write_text("{}")
+
+        handler.dispatch(FileCreatedEvent(str(state_file)))
+
+        logger.log_hidden_file_excluded.assert_called_once_with(".backup_state.json")
+        logger.log_file_excluded.assert_not_called()
+
+    def test_pattern_exclusion_logs_the_matching_pattern(self, source: Path, mocker: MockFixture) -> None:
+        from watchdog.events import FileCreatedEvent
+
+        handler, _, logger = self._handler(source, mocker, [".backup_state.json", "temp_*", "*.log"])
+        log_file = source / "debug.log"
+        log_file.write_text("trace")
+
+        handler.dispatch(FileCreatedEvent(str(log_file)))
+
+        logger.log_file_excluded.assert_called_once_with("debug.log", "*.log")
+        logger.log_hidden_file_excluded.assert_not_called()
+        assert handler.pending_files == {}
+
+    @pytest.mark.parametrize(
+        ("filename", "expected_line"),
+        [
+            (".gitignore", "[WARNING] File excluded: .gitignore (hidden file)"),
+            ("debug.log", "[WARNING] File excluded: debug.log (matches: *.log)"),
+        ],
+        ids=["hidden-file", "pattern"],
+    )
+    def test_exclusion_line_in_the_log_file(self, source: Path, tmp_path: Path, filename: str, expected_line: str) -> None:
+        from watchdog.events import FileModifiedEvent
+
+        from trs_file_backup.logger import BackupLogger
+        from trs_file_backup.main import BackupEventHandler
+
+        manager = Mock()
+        manager.source_path = source
+        manager.excluded_patterns = [".backup_state.json", "*.log"]
+        logger = BackupLogger(tmp_path / "dest")
+        try:
+            handler = BackupEventHandler(manager, Mock(), logger, 2)
+            excluded_file = source / filename
+            excluded_file.write_text("content")
+            handler.dispatch(FileModifiedEvent(str(excluded_file)))
+        finally:
+            logger.close()
+
+        log_lines = (tmp_path / "dest" / "backup.log").read_text(encoding="utf-8").splitlines()
+        assert [line.split("] ", 1)[1] for line in log_lines] == [expected_line]
+
+
+class TestExcludeOptionValues:
+    """`--exclude` rejects an empty pattern and strips surrounding whitespace, as `config` does (spec AC-4.9)."""
+
+    @pytest.mark.parametrize("command", ["init", "run", "watch"])
+    @pytest.mark.parametrize("value", ["", "   "], ids=["empty", "spaces"])
+    def test_empty_pattern_is_rejected(self, mocker: MockFixture, tmp_path: Path, command: str, value: str) -> None:
+        from trs_file_backup.main import app
+
+        source = tmp_path / "source"
+        source.mkdir()
+        dest = tmp_path / "dest"
+        observer = mocker.patch("trs_file_backup.main.Observer")
+        mocker.patch("time.sleep", side_effect=KeyboardInterrupt)  # ends watch at once if the value were accepted
+
+        result = runner.invoke(app, [command, "--source", str(source), "--destination", str(dest), "--exclude", "*.log", "--exclude", value])
+
+        assert result.exit_code == 2
+        assert "empty pattern" in _help_output(result)
+        assert "--exclude" in _help_output(result)
+        assert not (dest / ".backup_state.json").exists()
+        observer.assert_not_called()
+
+    @pytest.mark.parametrize("command", ["init", "run", "watch"])
+    @pytest.mark.parametrize("value", ["logs/*.log", "sub\\*.log", "..", ".", "./", "\t"], ids=["slash", "backslash", "dotdot", "dot", "dot-slash", "tab"])
+    def test_pattern_that_cannot_be_matched_is_rejected(self, mocker: MockFixture, tmp_path: Path, command: str, value: str) -> None:
+        """A pattern with a path separator, "." or ".." never matches a bare file name (spec AC-4.6, AC-4.9)."""
+        from trs_file_backup.main import app
+
+        source = tmp_path / "source"
+        source.mkdir()
+        dest = tmp_path / "dest"
+        observer = mocker.patch("trs_file_backup.main.Observer")
+        mocker.patch("time.sleep", side_effect=KeyboardInterrupt)  # ends watch at once if the value were accepted
+
+        result = runner.invoke(app, [command, "--source", str(source), "--destination", str(dest), "--exclude", value])
+
+        assert result.exit_code == 2
+        assert f"'{value.strip()}' is not usable" in _help_output(result)
+        assert "--exclude" in _help_output(result)
+        assert not (dest / ".backup_state.json").exists()
+        observer.assert_not_called()
+
+    def test_file_name_patterns_are_accepted(self, tmp_path: Path) -> None:
+        from trs_file_backup.main import app
+
+        source = tmp_path / "source"
+        source.mkdir()
+        dest = tmp_path / "dest"
+
+        result = runner.invoke(app, ["init", "--source", str(source), "--destination", str(dest), "--exclude", "*.log", "--exclude", "temp_*", "--exclude", ".env"])
+
+        assert result.exit_code == 0, result.output
+        saved = json.loads((dest / ".backup_state.json").read_text(encoding="utf-8"))
+        assert saved["excluded_patterns"] == [".backup_state.json", "*.log", "temp_*", ".env"]
+
+    def test_pattern_is_saved_without_surrounding_spaces(self, tmp_path: Path) -> None:
+        from trs_file_backup.main import app
+
+        source = tmp_path / "source"
+        source.mkdir()
+        dest = tmp_path / "dest"
+
+        result = runner.invoke(app, ["init", "--source", str(source), "--destination", str(dest), "--exclude", "  *.log ", "--exclude", "*.log"])
+
+        assert result.exit_code == 0
+        saved = json.loads((dest / ".backup_state.json").read_text(encoding="utf-8"))
+        assert saved["excluded_patterns"] == [".backup_state.json", "*.log"]
+
+
+class TestPathsInConsoleOutput:
+    """Folder paths that look like Rich markup are printed as they are."""
+
+    def test_init_prints_folder_paths_literally(self, tmp_path: Path) -> None:
+        from trs_file_backup.main import app
+
+        source = tmp_path / "[red]source"
+        source.mkdir()
+        dest = tmp_path / "[red]dest"
+
+        result = runner.invoke(app, ["init", "--source", str(source), "--destination", str(dest)])
+
+        assert result.exit_code == 0
+        output = click.unstyle(result.output).replace("\n", "")  # Rich wraps long paths
+        assert f"Initialized backup tracking for {source}" in output
+        assert f"State file saved to {dest / '.backup_state.json'}" in output
+        assert f"Log file created: {dest / 'backup.log'}" in output
+
+    def test_init_prints_a_path_ending_in_a_backslash_once(self, tmp_path: Path) -> None:
+        """A drive root such as C:\\ ends in a backslash; it must not be printed doubled."""
+        from trs_file_backup.main import app
+
+        root = tmp_path.anchor
+
+        result = runner.invoke(app, ["init", "--source", root, "--destination", str(tmp_path / "dest")])
+
+        assert result.exit_code == 0, result.output
+        lines = click.unstyle(result.output).splitlines()
+        assert f"OK Initialized backup tracking for {root}" in lines
+
+    def test_emoji_codes_in_file_names_are_printed_as_text(self, mocker: MockFixture, tmp_path: Path) -> None:
+        """Rich would turn :fire: into an emoji, on a markup=False line ("File created") and on a Text line ("Backing up")."""
+        from watchdog.events import FileCreatedEvent
+
+        from trs_file_backup.logger import BackupLogger
+        from trs_file_backup.main import BackupEventHandler, console
+
+        source = tmp_path / "source"
+        new_file = source / ":fire:notes.txt"  # Windows forbids ":" in names, so the file system is mocked
+        mocker.patch.object(Path, "exists", return_value=True)
+        mocker.patch.object(Path, "stat", return_value=Mock(st_mtime=1000.0))
+        manager = Mock()
+        manager.source_path = source
+        manager.excluded_patterns = [".backup_state.json"]
+        manager.backup_file.return_value = tmp_path / ":fire:notes_backup.txt"
+        mocker.patch("time.time", return_value=100.0)
+        handler = BackupEventHandler(manager, Mock(), mocker.Mock(spec=BackupLogger), 2)
+
+        output = io.StringIO()
+        # Keep the real console, whose settings are under test. Its private _file is patched because
+        # setting the public file property would pin it to the captured stdout of this test.
+        mocker.patch.object(console, "_file", output)
+
+        handler.dispatch(FileCreatedEvent(str(new_file)))
+        mocker.patch("time.time", return_value=103.0)
+        handler.process_pending_files()
+
+        printed = click.unstyle(output.getvalue()).replace("\n", "")
+        assert "File created: :fire:notes.txt" in printed
+        assert "Backing up: :fire:notes.txt -> :fire:notes_backup.txt OK" in printed
+
+    @pytest.mark.parametrize("command", ["init", "run", "watch"])
+    def test_error_line_prints_the_message_literally(self, mocker: MockFixture, tmp_path: Path, command: str) -> None:
+        from trs_file_backup.main import app
+
+        source = tmp_path / "source"
+        source.mkdir()
+        message = "cannot write [red]notes in D:\\"
+        mocker.patch("trs_file_backup.main.BackupLogger", side_effect=OSError(message))
+
+        result = runner.invoke(app, [command, "--source", str(source), "--destination", str(tmp_path / "dest")])
+
+        assert result.exit_code == 1
+        assert f"Error: {message}" in click.unstyle(result.output).splitlines()
+
+    @pytest.mark.parametrize(("error", "line"), [(PermissionError, "ERROR Permission denied: "), (OSError, "WARNING File locked, skipping: ")], ids=["permission", "locked"])
+    def test_run_prints_paths_and_names_literally(self, mocker: MockFixture, tmp_path: Path, error: type[OSError], line: str) -> None:
+        from trs_file_backup.backup import BackupManager
+        from trs_file_backup.main import app
+
+        source = tmp_path / "[red]source"
+        source.mkdir()
+        (source / "[red]a.txt").write_text("content")
+        dest = tmp_path / "[red]dest"
+        mocker.patch("time.sleep")
+        mocker.patch.object(BackupManager, "backup_file", side_effect=error("no access"))
+
+        result = runner.invoke(app, ["run", "--source", str(source), "--destination", str(dest)])
+
+        assert result.exit_code == 0, result.output
+        output = click.unstyle(result.output).replace("\n", "")  # Rich wraps long paths
+        assert f"Scanning source directory: {source}" in output
+        assert f"{line}[red]a.txt" in output
+        assert f"Successfully backed up 0 files to {dest}" in output
+        assert f"Logging to: {dest / 'backup.log'}" in output
+
+    def test_watch_start_lines_print_paths_literally(self, mocker: MockFixture, tmp_path: Path) -> None:
+        from trs_file_backup.main import app
+
+        source = tmp_path / "[red]source"
+        source.mkdir()
+        dest = tmp_path / "[red]dest"
+        mocker.patch("trs_file_backup.main.Observer")
+        mocker.patch("time.sleep", side_effect=KeyboardInterrupt)
+
+        result = runner.invoke(app, ["watch", "--source", str(source), "--destination", str(dest)])
+
+        assert result.exit_code == 0, result.output
+        output = click.unstyle(result.output).replace("\n", "")  # Rich wraps long paths
+        assert f"Starting file system monitor for {source}" in output
+        assert f"Logging to: {dest / 'backup.log'}" in output
+
+    @pytest.mark.parametrize(("error", "line"), [(PermissionError, "ERROR Permission denied: "), (OSError, "WARNING File locked, skipping: ")], ids=["permission", "locked"])
+    def test_watch_error_lines_print_file_names_literally(self, mocker: MockFixture, tmp_path: Path, error: type[OSError], line: str) -> None:
+        from rich.console import Console
+        from watchdog.events import FileCreatedEvent
+
+        from trs_file_backup.logger import BackupLogger
+        from trs_file_backup.main import BackupEventHandler
+
+        output = io.StringIO()
+        mocker.patch("trs_file_backup.main.console", Console(file=output, width=300, color_system=None))
+        source = tmp_path / "source"
+        source.mkdir()
+        new_file = source / "[red]notes.txt"
+        new_file.write_text("content")
+        manager = Mock()
+        manager.source_path = source
+        manager.excluded_patterns = [".backup_state.json"]
+        manager.backup_file.side_effect = error("no access")
+        mocker.patch("time.time", return_value=100.0)
+        handler = BackupEventHandler(manager, Mock(), mocker.Mock(spec=BackupLogger), 2)
+
+        handler.dispatch(FileCreatedEvent(str(new_file)))
+        mocker.patch("time.time", return_value=103.0)
+        handler.process_pending_files()
+
+        assert f"{line}[red]notes.txt" in output.getvalue().splitlines()
 
 
 class TestMainApp:
