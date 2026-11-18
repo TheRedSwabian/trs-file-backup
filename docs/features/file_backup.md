@@ -293,7 +293,7 @@ The rules follow the model of `borg prune` and `restic forget`: count periods, k
   A value below -1 is invalid; AC-7.17 and AC-7.19 reject it when it is entered, and AC-8.16 defines what happens when it is stored.
 - AC-8.3: When all four rules are 0 (the default), no backup shall be deleted.
   `run` and `watch` then do not list the destination directory for retention, and `cleanup` does what AC-8.14 says for this case.
-- AC-8.4: The time of a backup shall be read from its name (AC-2.2), as local time; the modification time of the file is not used.
+- AC-8.4: The time of a backup shall be read from its name (AC-2.2), as local time; the modification time of the file is not used (KL-4).
   "Now" is the time of the system clock when the rules are applied to the backups of one original file.
   `retention.hours` keeps a backup when now minus its time is less than N hours.
   A backup whose time lies after now (the clock was changed) counts as younger than N hours for any N greater than 0, and is not kept by the value 0.
@@ -1137,6 +1137,19 @@ so together they can keep more backups than the rules would keep for a single gr
 
 **Decision (2026-11-18):** documented, not changed, together with the design of the retention rules (issue #27).
 
+### KL-4: Retention ignores daylight saving time
+
+Backup names carry local time without a time zone (AC-2.2), and retention reads the time of a backup from its name (AC-8.4).
+Around a change of daylight saving time, ages and the order of backups can therefore be off by one hour:
+
+- When the clocks go forward, `retention.hours` sees every backup made before the change as one hour older than it is,
+  so a backup near the end of the N hours can be deleted up to one hour early.
+- When the clocks go back, backups made before the change look one hour younger and are kept up to one hour longer.
+- When the clocks go back, a backup made in the repeated hour can sort before an older backup from the first pass of that hour,
+  so the rules can keep the older one as the newest backup of the file and delete the really newer one.
+
+**Decision (2026-11-18):** documented, not changed; the issue decides that the time of a backup comes from its name (issue #27).
+
 ## Implementation Notes
 
 ### General
@@ -1153,7 +1166,9 @@ so together they can keep more backups than the rules would keep for a single gr
 - Timestamp format: `strftime("%Y_%m_%d__%H_%M_%S")` with 24-hour format
 - Backup filename pattern: see AC-2.2; `BackupManager.generate_backup_filename()` makes the name
 - Backup name reading for retention (AC-8.6): a name is a backup only when `generate_backup_filename()` gives exactly this name back
-  for the original name and the time read from it
+  for the original name and the time read from it.
+  `retention.parse_backup_name()` reads a name,
+  and `retention.select_backups_to_keep()` applies the rules (FR-8) to the backups of one original file, without any file access
 - Implement atomic state file updates (write to temp file, then rename)
 - Use `pathlib.Path.match()` for pattern matching with wildcard support
 - Exclusion patterns: AC-4.6 (file name only) and AC-4.9 (which patterns are accepted)
