@@ -107,6 +107,11 @@ Backup file: `report_2026_01_13__14_30_22.txt`
 
 Use `trs-file-backup COMMAND --help` for detailed information on each command.
 
+## Known Limitations
+
+- Two backups of the same file within one second get the same name, and the newer backup replaces the older one.
+  This is known and accepted for now; see KL-1 in the [specification](docs/features/file_backup.md#known-limitations).
+
 ## Contributing
 
 Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, commit conventions, and the release process.
