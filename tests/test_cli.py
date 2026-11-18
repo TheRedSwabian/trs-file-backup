@@ -2196,6 +2196,12 @@ class TestMainApp:
         assert "init" in _help_output(result)
         assert "watch" in _help_output(result)
 
+    def test_package_installs_only_the_trs_file_backup_command(self) -> None:
+        """The package installs one command; the old alias `bcs` is gone (spec NFR-3)."""
+        commands = importlib.metadata.distribution("trs-file-backup").entry_points.select(group="console_scripts")
+
+        assert sorted(command.name for command in commands) == ["trs-file-backup"]
+
     def test_main_version_flag(self) -> None:
         """Test that --version prints the version from the installed package metadata."""
         import trs_file_backup

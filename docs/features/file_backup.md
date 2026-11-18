@@ -228,6 +228,7 @@ and automatically backs up files when they are modified, created or moved into i
 ### NFR-3: Usability
 
 - The CLI interface shall provide clear help messages
+- Installing the package shall install exactly one command, `trs-file-backup`; the former alias `bcs` was removed in 4.0.0
 - Progress shall be visible during backup operations
 - The system shall report the number of files backed up successfully
 - The tool shall provide a `--help` / `-h` option for the main command and all subcommands
