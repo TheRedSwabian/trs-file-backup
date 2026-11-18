@@ -548,6 +548,25 @@ class TestSavedSettings:
         assert "Exclusion patterns: .backup_state.json, *.log\n" in header
         assert "Debounce delay: 5 seconds" in header
 
+    def test_run_copies_without_waiting_for_the_debounce_delay(self, mocker: MockFixture, tmp_path: Path) -> None:
+        """The debounce delay only applies to watch; run copies at once (spec AC-2.7)."""
+        from trs_file_backup.main import app
+
+        source = tmp_path / "source"
+        source.mkdir()
+        dest = tmp_path / "dest"
+        (source / "a.txt").write_text("a")
+        (source / "b.txt").write_text("b")
+        sleep = mocker.patch("time.sleep")
+
+        result = runner.invoke(app, ["run", "--source", str(source), "--destination", str(dest), "--debounce", "5"])
+
+        assert result.exit_code == 0, result.output
+        assert _backed_up(dest, "a", ".txt")
+        assert _backed_up(dest, "b", ".txt")
+        sleep.assert_not_called()
+        assert _saved_settings(dest) == ([".backup_state.json"], 5)
+
     def test_run_given_exclude_replaces_saved_patterns_and_keeps_saved_debounce(self, mocker: MockFixture, tmp_path: Path) -> None:
         from trs_file_backup.main import app
 

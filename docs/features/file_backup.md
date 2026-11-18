@@ -38,6 +38,8 @@ The tool shall be implemented as a Python command-line application with comprehe
 - AC-2.4: The timestamp shall use 24-hour format (HH: 00-23)
 - AC-2.5: All backup files shall be stored flat in the destination directory (no subdirectories)
 - AC-2.6: If the destination directory does not exist, it shall be created automatically
+- AC-2.7: `run` shall copy the modified files without waiting between or before the copies;
+  the debounce delay applies only to `watch` (AC-5.4, AC-5.5), and `run --debounce` only saves it (AC-3.8)
 
 ### FR-3: State Persistence
 
@@ -297,7 +299,7 @@ trs-file-backup run --help
 - `--destination`: Path to the destination backup directory (required)
 - `--exclude`: File-name pattern to exclude, see AC-4.6 and AC-4.9 (optional, can be specified multiple times).
   It replaces the saved patterns; without it, the saved patterns are used (AC-3.7, AC-3.8)
-- `--debounce`: Seconds to wait before backup (optional).
+- `--debounce`: Debounce delay in seconds that `watch` uses (optional); `run` itself copies without waiting (AC-2.7).
   It replaces the saved value; without it, the saved value is used, or 2 if none is saved (AC-3.7 to AC-3.9)
 - `--dry-run`: Show what would be backed up without actually copying files (optional)
 
@@ -318,8 +320,9 @@ Options:
   --exclude PATTERN       File-name patterns to exclude (can be repeated).
                           Replaces the saved patterns; if not given, the saved
                           patterns are used
-  --debounce INTEGER      Seconds to wait before backup. Replaces the saved
-                          value; if not given, the saved value is used
+  --debounce INTEGER      Seconds to wait in watch mode; run itself copies
+                          without waiting. Replaces the saved value; if not
+                          given, the saved value is used
                           [default: (saved value, else 2)]
   --dry-run              Show what would be backed up without copying
   --help, -h             Show this message and exit
@@ -331,7 +334,7 @@ Examples:
   # Exclude log files
   trs-file-backup run --source ./src --destination ./backup --exclude "*.log"
 
-  # Multiple exclusions with custom debounce
+  # Multiple exclusions; save a debounce delay of 5 seconds for watch
   trs-file-backup run --source ./src --destination ./backup --exclude "*.log" --exclude "temp_*" --debounce 5
 
   # Preview without copying
@@ -344,9 +347,9 @@ Examples:
 Scanning source directory: C:\Projects\MyApp
 Found 4 modified files
 Backing up files...
-  OK main.py -> main_2026_01_13__14_30_22.py
-  OK readme.md -> readme_2026_01_13__14_30_25.md
-  OK config.yaml -> config_2026_01_13__14_30_26.yaml
+  OK main.py -> main_2026_01_13__14_30_21.py
+  OK readme.md -> readme_2026_01_13__14_30_21.md
+  OK config.yaml -> config_2026_01_13__14_30_21.yaml
   WARNING File locked, skipping: database.db
 
 Successfully backed up 3 files to C:\Backup\MyApp
@@ -364,13 +367,13 @@ Logging to: C:\Backup\MyApp\backup.log
 [2026-01-13 14:30:20] [INFO] Exclusion patterns: .backup_state.json, *.log, temp_*
 [2026-01-13 14:30:20] [INFO] Debounce delay: 2 seconds
 [2026-01-13 14:30:20] [INFO] Found 4 modified files
-[2026-01-13 14:30:22] [INFO] Backed up: main.py → main_2026_01_13__14_30_22.py
-[2026-01-13 14:30:25] [INFO] Backed up: readme.md → readme_2026_01_13__14_30_25.md
-[2026-01-13 14:30:26] [INFO] Backed up: config.yaml → config_2026_01_13__14_30_26.yaml
-[2026-01-13 14:30:28] [WARNING] File locked, skipping: database.db
-[2026-01-13 14:30:30] [INFO] Backup operation completed: 3 of 4 files backed up
-[2026-01-13 14:30:30] [INFO] Session summary: 3 of 4 files backed up
-[2026-01-13 14:30:30] [INFO] ========== Session Ended ==========
+[2026-01-13 14:30:21] [INFO] Backed up: main.py → main_2026_01_13__14_30_21.py
+[2026-01-13 14:30:21] [INFO] Backed up: readme.md → readme_2026_01_13__14_30_21.md
+[2026-01-13 14:30:21] [INFO] Backed up: config.yaml → config_2026_01_13__14_30_21.yaml
+[2026-01-13 14:30:21] [WARNING] File locked, skipping: database.db
+[2026-01-13 14:30:21] [INFO] Backup operation completed: 3 of 4 files backed up
+[2026-01-13 14:30:21] [INFO] Session summary: 3 of 4 files backed up
+[2026-01-13 14:30:21] [INFO] ========== Session Ended ==========
 ```
 
 ### Command: `init`
@@ -390,7 +393,7 @@ trs-file-backup init --help
 - `--source`: Path to the source directory (required)
 - `--destination`: Path to the destination backup directory (required)
 - `--exclude`: File-name pattern to exclude, see AC-4.6 and AC-4.9 (optional, can be specified multiple times)
-- `--debounce`: Seconds to wait before backup (optional, default: 2)
+- `--debounce`: Seconds that `watch` waits before a backup; `run` copies without waiting, see AC-2.7 (optional, default: 2)
 
 **Help Output:**
 
@@ -407,7 +410,8 @@ Options:
   --source PATH           Source directory to monitor [required]
   --destination PATH      Destination backup directory [required]
   --exclude PATTERN       File-name patterns to exclude (can be repeated)
-  --debounce INTEGER      Seconds to wait before backup [default: 2]
+  --debounce INTEGER      Seconds to wait in watch mode; run copies without
+                          waiting  [default: 2]
   --help, -h             Show this message and exit
 
 Examples:
@@ -670,7 +674,7 @@ A pattern added in the menu is marked `(new)`.
 - `source_path`: The source directory being monitored; AC-3.12 defines what happens when `run` or `watch` gets another one
 - `destination_path`: The destination backup directory; AC-3.11 defines which directory counts when the folder was copied or moved
 - `log_file`: Name of the log file (always `backup.log`)
-- `debounce_seconds`: Wait time in seconds before backup (default: 2)
+- `debounce_seconds`: Debounce delay in seconds that `watch` waits before a backup (default: 2); `run` does not wait (AC-2.7)
 - `excluded_patterns`: `.backup_state.json`, followed by the user-specified exclusion patterns for filenames
 - The user-specified patterns are the ones last given with `--exclude` or saved by `config`; AC-3.6 to AC-3.10 and FR-7 define when they are saved and used
 - Patterns support wildcards: `*` (any characters), `?` (single character)
