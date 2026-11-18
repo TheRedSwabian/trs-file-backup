@@ -2,6 +2,41 @@
 
 <!-- version list -->
 
+## v4.1.0 (2026-11-18)
+
+### Documentation
+
+- Specify backup retention, cleanup and config show/set
+  ([#27](https://github.com/TheRedSwabian/trs-file-backup/pull/27),
+  [`4cb088c`](https://github.com/TheRedSwabian/trs-file-backup/commit/4cb088cb300412db8cad590f5b8e728423f0a7b5))
+
+### Features
+
+- **cleanup**: Add the cleanup command for retention rules
+  ([#27](https://github.com/TheRedSwabian/trs-file-backup/pull/27),
+  [`7cd240d`](https://github.com/TheRedSwabian/trs-file-backup/commit/7cd240dc371f3bafb71dcfb20c3bd282a1e410cb))
+
+- **config**: Add config show KEY and config set KEY VALUE
+  ([#27](https://github.com/TheRedSwabian/trs-file-backup/pull/27),
+  [`68d00f3`](https://github.com/TheRedSwabian/trs-file-backup/commit/68d00f356153593077821ceab3ede6b5b3af1b0c))
+
+- **config**: Change the retention rules in the config menu
+  ([#27](https://github.com/TheRedSwabian/trs-file-backup/pull/27),
+  [`4f739d5`](https://github.com/TheRedSwabian/trs-file-backup/commit/4f739d524ddfd9cdcc6affa0947a2f08eb121c3b))
+
+- **retention**: Select backups to keep by the retention rules
+  ([#27](https://github.com/TheRedSwabian/trs-file-backup/pull/27),
+  [`5d51121`](https://github.com/TheRedSwabian/trs-file-backup/commit/5d511216aff4906e3066b228865910e46f12a752))
+
+- **retention**: Thin out old backups in run and watch
+  ([#27](https://github.com/TheRedSwabian/trs-file-backup/pull/27),
+  [`32c728b`](https://github.com/TheRedSwabian/trs-file-backup/commit/32c728b3b5640c0a96cf780aae346378e9ef1ad5))
+
+- **state**: Save retention rules, log them and show them
+  ([#27](https://github.com/TheRedSwabian/trs-file-backup/pull/27),
+  [`e38b0a0`](https://github.com/TheRedSwabian/trs-file-backup/commit/e38b0a0c749d7f4dc0c69ac7cf1016c4f3605b8b))
+
+
 ## v4.0.0 (2026-11-18)
 
 ### Bug Fixes

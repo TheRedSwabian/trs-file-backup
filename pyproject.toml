@@ -1,6 +1,6 @@
 [project]
 name = "trs-file-backup"
-version = "4.0.0"
+version = "4.1.0"
 description = "Script to backup changed files in a given folder."
 authors = [{ name = "Ruediger Reiner" }]
 license = { text = "MIT" }
