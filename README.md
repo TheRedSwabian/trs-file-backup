@@ -27,7 +27,8 @@
 - 🎯 **Smart Exclusions**: Automatically skip hidden files
 - 🚫 **Custom Patterns**: Exclude specific files with wildcard patterns
 - 📊 **State Tracking**: Maintain backup history in `.backup_state.json` (stored in backup directory)
-- 🛠️ **Settings Menu**: Show and edit the saved exclusion patterns and debounce delay with `config`
+- 🛠️ **Settings Menu**: Show and edit the saved exclusion patterns, debounce delay and retention rules with `config`
+- 🧹 **Retention Rules**: Thin out old backups per file — complete for recent hours, then one per day, week or month (off by default)
 - 📝 **Activity Logging**: All operations logged to `backup.log` with timestamps
 - 🔍 **Dry-Run Mode**: Preview changes before backing up
 
@@ -85,13 +86,52 @@ To see or change the saved settings without running `init` again, use `config`:
 # Print the saved settings
 trs-file-backup config show --destination ./backup
 
-# Open a menu to change the debounce delay or add, remove and clear exclusion patterns
+# Print or change one setting
+trs-file-backup config show debounce --destination ./backup
+trs-file-backup config set debounce 5 --destination ./backup
+
+# Open a menu to change the debounce delay, the retention rules, or add, remove and clear exclusion patterns
 trs-file-backup config --destination ./backup
 ```
 
-Nothing is written until you choose "save" in the menu.
-The changes take effect at the next start of `run` or `watch`.
+Nothing is written until you choose "save" in the menu; `config set` saves at once.
+The changes take effect at the next start of `run`, `watch` or `cleanup`.
 Stop a running `watch` and wait for a running `run` to finish first: both write their own settings back to the state file and would overwrite your changes.
+
+### Retention Rules
+
+Without rules, trs-file-backup keeps every backup forever.
+Four rules thin out the old backups of each file; a backup stays when at least one rule keeps it:
+
+| Setting key | Keeps |
+| --- | --- |
+| `retention.hours` | every backup younger than N hours |
+| `retention.days` | the newest backup of each of the last N days that have a backup |
+| `retention.weeks` | the newest backup of each of the last N weeks (Monday to Sunday) that have a backup |
+| `retention.months` | the newest backup of each of the last N months that have a backup |
+
+- `0` turns a rule off (the default for all four), and `-1` means no limit.
+- Days, weeks and months without a backup are not counted, so a file left unchanged for months keeps its last states.
+- The newest backup of each file is always kept, and a file whose name is not a backup name is never deleted.
+- `run` and `watch` apply the rules to a file's backups right after its new backup is complete; `run --dry-run` deletes nothing.
+
+The rules are settings: change them with `config`, never on the command line.
+Example, dense first and thin later: all backups of the last 24 hours, then one per day for 7 days, one per week for 4 weeks, and one per month forever.
+
+```bash
+trs-file-backup config set retention.hours 24 --destination ./backup
+trs-file-backup config set retention.days 7 --destination ./backup
+trs-file-backup config set retention.weeks 4 --destination ./backup
+trs-file-backup config set retention.months -1 --destination ./backup
+
+# See per file what is kept and what would be deleted, without deleting anything
+trs-file-backup cleanup --destination ./backup --dry-run
+
+# Apply the rules to all backups now
+trs-file-backup cleanup --destination ./backup
+```
+
+The [feature specification](docs/features/file_backup.md) (FR-8) has the exact rules.
 
 ### Example Output
 
@@ -103,7 +143,8 @@ Backup file: `report_2026_01_13__14_30_22.txt`
 - **`init`**: Initialize backup tracking for a directory
 - **`run`**: Execute a one-time backup of modified files
 - **`watch`**: Continuously monitor and backup files in real-time
-- **`config`**: Show and edit the saved settings (`config show` only prints them)
+- **`config`**: Show and edit the saved settings (`config show` only prints them; `config show KEY` and `config set KEY VALUE` read and change one setting)
+- **`cleanup`**: Delete old backups by the saved retention rules (`--dry-run` only shows what would be deleted)
 
 Use `trs-file-backup COMMAND --help` for detailed information on each command.
 
@@ -111,6 +152,10 @@ Use `trs-file-backup COMMAND --help` for detailed information on each command.
 
 - Two backups of the same file within one second get the same name, and the newer backup replaces the older one.
   This is known and accepted for now; see KL-1 in the [specification](docs/features/file_backup.md#known-limitations).
+- On Linux and macOS, retention can misread the backups of a file whose name ends with a dot; see KL-2 in the same section.
+- Retention compares file names case-sensitively:
+  after `report.txt` is renamed to `Report.txt`, the backups of each name are thinned out separately,
+  and each name keeps its newest backup; see KL-3 in the same section.
 
 ## Contributing
 

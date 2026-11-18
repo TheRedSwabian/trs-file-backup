@@ -25,5 +25,8 @@ file_backup.md
 - **Activity Logging**: All operations logged to `backup.log` with timestamps and severity levels
 - **Dry-Run Mode**: Preview what would be backed up without copying files
 - **Real-Time Watch Mode**: Continuously monitor directories and backup files automatically
-- **Settings Menu**: Show and edit the saved exclusion patterns and debounce delay with the `config` command
+- **Settings Menu**: Show and edit the saved exclusion patterns, debounce delay and retention rules with the `config` command;
+  `config show KEY` and `config set KEY VALUE` read and change one setting without the menu
+- **Retention Rules**: Thin out old backups per original file (all backups of the last hours, then one per day, week or month);
+  off by default, applied after each backup and by the `cleanup` command
 - **Comprehensive Help System**: Built-in help for all commands without external documentation

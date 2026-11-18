@@ -32,6 +32,9 @@ The tool provides these commands:
 - `trs-file-backup run` - One-time backup
 - `trs-file-backup watch` - Continuous monitoring mode
 - `trs-file-backup config` - Show and edit the saved settings (`config show` prints them without prompting)
+- `trs-file-backup config show [KEY]` - Print the saved settings, or only the value of one setting
+- `trs-file-backup config set KEY VALUE` - Change one setting (`debounce` or a `retention.*` rule) and save it at once
+- `trs-file-backup cleanup` - Delete old backups by the saved retention rules (`--dry-run` only shows what would be deleted)
 
 ### Backup Behavior
 
@@ -40,6 +43,7 @@ The tool provides these commands:
 - Backup filename format: `original_YYYY_MM_DD__HH_MM_SS.ext`
 - Tracks state in `.backup_state.json` (stored in backup directory)
 - Logs to `backup.log`
+- Deletes old backups only by the saved retention rules, which are all 0 (off) by default (spec FR-8)
 
 ### Development Workflow
 
