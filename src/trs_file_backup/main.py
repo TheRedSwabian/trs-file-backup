@@ -18,7 +18,7 @@ from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
 from trs_file_backup import __version__
-from trs_file_backup.backup import BackupManager
+from trs_file_backup.backup import BackupErrorKind, BackupManager, backup_error_reason, classify_backup_error
 from trs_file_backup.logger import BackupLogger
 from trs_file_backup.patterns import pattern_problem
 from trs_file_backup.state import StateManager
@@ -386,14 +386,8 @@ def run(
                 console.print(Text.assemble("  ", ("OK", "green"), f" {file.name} -> {backup_path.name}"))
                 backed_up_count += 1
 
-            except PermissionError:
-                logger.log_error(f"Permission denied: {file.name}")
-                console.print(Text.assemble("  ", ("ERROR", "red"), f" Permission denied: {file.name}"))
-                failed_count += 1
-
-            except OSError:
-                logger.log_file_locked(file.name)
-                console.print(Text.assemble("  ", ("WARNING", "yellow"), f" File locked, skipping: {file.name}"))
+            except OSError as e:
+                report_backup_error(logger, file.name, e, indent="  ")
                 failed_count += 1
 
         # Save updated state
@@ -415,6 +409,21 @@ def run(
     finally:
         if logger is not None:
             logger.close()
+
+
+def report_backup_error(logger: BackupLogger, name: str, error: OSError, indent: str = "") -> None:
+    """Print and log a failed backup of the file name by its cause (spec AC-6.18)."""
+    match classify_backup_error(error):
+        case BackupErrorKind.LOCKED:
+            logger.log_file_locked(name)
+            console.print(Text.assemble(indent, ("WARNING", "yellow"), f" File locked, skipping: {name}"))
+        case BackupErrorKind.PERMISSION_DENIED:
+            logger.log_error(f"Permission denied: {name}")
+            console.print(Text.assemble(indent, ("ERROR", "red"), f" Permission denied: {name}"))
+        case BackupErrorKind.OTHER:
+            message = f"Backup failed: {name} ({backup_error_reason(error)})"
+            logger.log_error(message)
+            console.print(Text.assemble(indent, ("ERROR", "red"), f" {message}"))
 
 
 class BackupEventHandler(FileSystemEventHandler):
@@ -520,7 +529,7 @@ class BackupEventHandler(FileSystemEventHandler):
         # Backup files that passed debounce
         for file_path, event_time in files_to_backup:
             try:
-                # Check if file still exists and is not locked
+                # Skip a file deleted after its event
                 if not file_path.exists():
                     self._remove_pending(file_path, event_time)
                     continue
@@ -530,28 +539,31 @@ class BackupEventHandler(FileSystemEventHandler):
                 timestamp = datetime.now()
                 backup_path = self.backup_manager.backup_file(file_path, timestamp)
 
-                # Update state
-                self.state.update_file_timestamp(file_path.name, mtime)
-                self.state.save()
-
                 # Log success
                 self.logger.log_file_backed_up(file_path.name, backup_path.name)
                 console.print(Text.assemble(f"[{timestamp.strftime('%Y-%m-%d %H:%M:%S')}] Backing up: {file_path.name} -> {backup_path.name} ", ("OK", "green")))
 
                 self.backed_up_count += 1
 
+                # Update state; a failed save is not a failed backup of this file (spec AC-5.11)
+                self.state.update_file_timestamp(file_path.name, mtime)
+                self._save_state()
+
                 # Remove from pending; an event during the copy keeps the file pending for the next debounce
                 self._remove_pending(file_path, event_time)
 
-            except PermissionError:
-                self.logger.log_error(f"Permission denied: {file_path.name}")
-                console.print(Text.assemble(("ERROR", "red"), f" Permission denied: {file_path.name}"))
+            except OSError as e:
+                report_backup_error(self.logger, file_path.name, e)
                 self._remove_pending(file_path, event_time)
 
-            except OSError:
-                self.logger.log_file_locked(file_path.name)
-                console.print(Text.assemble(("WARNING", "yellow"), f" File locked, skipping: {file_path.name}"))
-                self._remove_pending(file_path, event_time)
+    def _save_state(self) -> None:
+        """Save the state file; print and log a failure instead of raising it (spec AC-5.11)."""
+        try:
+            self.state.save()
+        except OSError as e:
+            message = f"Cannot save state file: {backup_error_reason(e)}"
+            self.logger.log_error(message)
+            console.print(Text.assemble(("ERROR", "red"), f" {message}"))
 
 
 @app.command()

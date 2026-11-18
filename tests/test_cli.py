@@ -1,5 +1,6 @@
 """Tests for CLI commands."""
 
+import errno
 import importlib
 import importlib.metadata
 import io
@@ -7,6 +8,7 @@ import json
 import os
 import re
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from unittest.mock import Mock, patch
@@ -17,6 +19,13 @@ from pytest_mock import MockFixture
 from typer.testing import CliRunner, Result
 
 runner = CliRunner()
+
+# One case per cause of a failed backup (spec AC-6.18): error, Windows error code or None, log level, message for report.txt
+BACKUP_ERROR_CASES = [
+    pytest.param(PermissionError(errno.EACCES, "lock violation"), 33, "WARNING", "File locked, skipping: report.txt", id="windows-lock"),
+    pytest.param(PermissionError(errno.EACCES, "Permission denied"), None, "ERROR", "Permission denied: report.txt", id="permission"),
+    pytest.param(OSError(errno.ENOSPC, "No space left on device"), None, "ERROR", "Backup failed: report.txt (No space left on device)", id="disk-full"),
+]
 
 
 def _help_output(result: Result) -> str:
@@ -332,27 +341,43 @@ class TestRunCommand:
         # Should not crash, should handle error gracefully
         assert "error" in result.stdout.lower() or "permission" in result.stdout.lower()
 
-    def test_run_handles_locked_files(self, mocker: MockFixture, tmp_path: Path) -> None:
-        """Test run command handles locked files (OSError) gracefully."""
+    @pytest.mark.parametrize(("error", "winerror", "level", "message"), BACKUP_ERROR_CASES)
+    def test_run_reports_a_failed_backup_by_its_cause(
+        self, mocker: MockFixture, tmp_path: Path, with_winerror: Callable[[OSError, int], OSError], error: OSError, winerror: int | None, level: str, message: str
+    ) -> None:
+        """Spec AC-6.18: the console and backup.log name the cause, and run continues with the next file."""
+        from trs_file_backup.backup import BackupManager
         from trs_file_backup.main import app
 
         source = tmp_path / "source"
         source.mkdir()
         dest = tmp_path / "dest"
+        (source / "report.txt").write_text("content")
+        (source / "other.txt").write_text("content")
+        if winerror is not None:
+            error = with_winerror(error, winerror)
+        real_backup_file = BackupManager.backup_file
 
-        (source / "test.txt").write_text("test")
+        def fail_for_report(manager: BackupManager, file: Path, timestamp: Any) -> Path:
+            if file.name == "report.txt":
+                raise error
+            return real_backup_file(manager, file, timestamp)
 
-        # Mock backup_file to raise OSError (file locked)
-        _mock_backup = mocker.patch("trs_file_backup.backup.BackupManager.backup_file", side_effect=OSError("File is locked"))
+        mocker.patch.object(BackupManager, "backup_file", autospec=True, side_effect=fail_for_report)
 
-        result = runner.invoke(
-            app,
-            ["run", "--source", str(source), "--destination", str(dest)],
-        )
+        result = runner.invoke(app, ["run", "--source", str(source), "--destination", str(dest)])
 
-        # Should not crash, should handle error gracefully
-        assert result.exit_code == 0
-        assert "locked" in result.stdout.lower() or "skipping" in result.stdout.lower()
+        assert result.exit_code == 0, result.output
+        output = click.unstyle(result.output)
+        assert f"  {level} {message}" in output.splitlines()
+        assert "Successfully backed up 1 files to" in output
+        assert "Failed: 1 files" in output.splitlines()
+        log = (dest / "backup.log").read_text(encoding="utf-8")
+        assert f"[{level}] {message}" in log
+        assert "Backed up: other.txt" in log
+        if level == "ERROR":
+            assert "locked" not in output.lower()
+            assert "locked" not in log.lower()
 
     def test_run_no_modified_files(self, mocker: MockFixture, tmp_path: Path) -> None:
         """Test run command when no files are modified."""
@@ -1487,49 +1512,93 @@ class TestBackupEventHandler:
         manager.backup_file.assert_called_once()
         assert file_path not in handler.pending_files
 
-    def test_event_handler_handles_os_error(self, tmp_path: Path, mocker: MockFixture) -> None:
-        """Test that event handler handles OS errors gracefully."""
-        from unittest.mock import Mock
-
+    @pytest.mark.parametrize(("error", "winerror", "level", "message"), BACKUP_ERROR_CASES)
+    def test_event_handler_reports_a_failed_backup_by_its_cause(
+        self, tmp_path: Path, mocker: MockFixture, with_winerror: Callable[[OSError, int], OSError], error: OSError, winerror: int | None, level: str, message: str
+    ) -> None:
+        """Spec AC-6.18: the console and backup.log name the cause, and the file leaves the pending files."""
+        from rich.console import Console
         from watchdog.events import FileModifiedEvent
 
+        from trs_file_backup.logger import BackupLogger
         from trs_file_backup.main import BackupEventHandler
 
+        output = io.StringIO()
+        mocker.patch("trs_file_backup.main.console", Console(file=output, width=300, color_system=None))
         source = tmp_path / "source"
         source.mkdir()
         dest = tmp_path / "dest"
-        dest.mkdir()
-
+        if winerror is not None:
+            error = with_winerror(error, winerror)
         manager = Mock()
+        manager.source_path = source
         manager.excluded_patterns = []
-        manager.backup_file.side_effect = OSError("File is locked")
-        logger = Mock()
+        manager.backup_file.side_effect = error
         state = Mock()
-
-        # Mock time.time
-        mock_time = mocker.patch("time.time")
-        mock_time.return_value = 100.0
-
+        logger = BackupLogger(dest)
+        mocker.patch("time.time", return_value=100.0)
         handler = BackupEventHandler(manager, state, logger, 1)
+        file_path = source / "report.txt"
+        file_path.write_text("content")
+        handler.on_modified(FileModifiedEvent(str(file_path)))
 
-        # Create file event
-        file_path = source / "locked.txt"
-        file_path.touch()
-        event = FileModifiedEvent(str(file_path))
-        event.is_directory = False
+        mocker.patch("time.time", return_value=102.0)
+        try:
+            handler.process_pending_files()
+        finally:
+            logger.close()
 
-        # Trigger event
-        handler.on_modified(event)
-        assert file_path in handler.pending_files
-
-        # Process after debounce: should handle OS error
-        mock_time.return_value = 102.0
-        handler.process_pending_files()
-
-        # Should log locked file and remove from pending
-        logger.log_file_locked.assert_called_once()
-        manager.backup_file.assert_called_once()
         assert file_path not in handler.pending_files
+        assert handler.backed_up_count == 0
+        state.update_file_timestamp.assert_not_called()
+        assert f"{level} {message}" in output.getvalue().splitlines()
+        log = (dest / "backup.log").read_text(encoding="utf-8")
+        assert f"[{level}] {message}" in log
+        if level == "ERROR":
+            assert "locked" not in output.getvalue().lower()
+            assert "locked" not in log.lower()
+
+    def test_event_handler_reports_a_state_file_that_cannot_be_saved(self, tmp_path: Path, mocker: MockFixture) -> None:
+        """Spec AC-5.11: a failed state save after a good copy is its own error, not a failed backup."""
+        from rich.console import Console
+        from watchdog.events import FileModifiedEvent
+
+        from trs_file_backup.logger import BackupLogger
+        from trs_file_backup.main import BackupEventHandler
+
+        output = io.StringIO()
+        mocker.patch("trs_file_backup.main.console", Console(file=output, width=300, color_system=None))
+        source = tmp_path / "source"
+        source.mkdir()
+        dest = tmp_path / "dest"
+        manager = Mock()
+        manager.source_path = source
+        manager.excluded_patterns = []
+        manager.backup_file.return_value = dest / "report_backup.txt"
+        state = Mock()
+        state.save.side_effect = OSError(errno.ENOSPC, "No space [left] on device")
+        logger = BackupLogger(dest)
+        mocker.patch("time.time", return_value=100.0)
+        handler = BackupEventHandler(manager, state, logger, 1)
+        file_path = source / "report.txt"
+        file_path.write_text("content")
+        handler.on_modified(FileModifiedEvent(str(file_path)))
+
+        mocker.patch("time.time", return_value=102.0)
+        try:
+            handler.process_pending_files()
+        finally:
+            logger.close()
+
+        assert file_path not in handler.pending_files
+        assert handler.backed_up_count == 1
+        lines = output.getvalue().splitlines()
+        assert "ERROR Cannot save state file: No space [left] on device" in lines
+        assert not any("report.txt" in line for line in lines if "ERROR" in line or "WARNING" in line)
+        log = (dest / "backup.log").read_text(encoding="utf-8")
+        assert "[INFO] Backed up: report.txt → report_backup.txt" in log
+        assert "[ERROR] Cannot save state file: No space [left] on device" in log
+        assert "Backup failed" not in log
 
     def test_event_handler_successful_backup(self, tmp_path: Path, mocker: MockFixture) -> None:
         """Test that event handler successfully backs up modified files."""
@@ -2025,8 +2094,18 @@ class TestPathsInConsoleOutput:
         assert result.exit_code == 1
         assert f"Error: {message}" in click.unstyle(result.output).splitlines()
 
-    @pytest.mark.parametrize(("error", "line"), [(PermissionError, "ERROR Permission denied: "), (OSError, "WARNING File locked, skipping: ")], ids=["permission", "locked"])
-    def test_run_prints_paths_and_names_literally(self, mocker: MockFixture, tmp_path: Path, error: type[OSError], line: str) -> None:
+    @pytest.mark.parametrize(
+        ("error", "winerror", "line", "tail"),
+        [
+            (PermissionError(errno.EACCES, "no access"), None, "ERROR Permission denied: ", ""),
+            (PermissionError(errno.EACCES, "no access"), 32, "WARNING File locked, skipping: ", ""),
+            (OSError(errno.EIO, "[red]bad[/red] sector"), None, "ERROR Backup failed: ", " ([red]bad[/red] sector)"),
+        ],
+        ids=["permission", "locked", "failed"],
+    )
+    def test_run_prints_paths_and_names_literally(
+        self, mocker: MockFixture, tmp_path: Path, with_winerror: Callable[[OSError, int], OSError], error: OSError, winerror: int | None, line: str, tail: str
+    ) -> None:
         from trs_file_backup.backup import BackupManager
         from trs_file_backup.main import app
 
@@ -2034,14 +2113,16 @@ class TestPathsInConsoleOutput:
         source.mkdir()
         (source / "[red]a.txt").write_text("content")
         dest = tmp_path / "[red]dest"
-        mocker.patch.object(BackupManager, "backup_file", side_effect=error("no access"))
+        if winerror is not None:
+            error = with_winerror(error, winerror)
+        mocker.patch.object(BackupManager, "backup_file", side_effect=error)
 
         result = runner.invoke(app, ["run", "--source", str(source), "--destination", str(dest)])
 
         assert result.exit_code == 0, result.output
         output = click.unstyle(result.output).replace("\n", "")  # Rich wraps long paths
         assert f"Scanning source directory: {source}" in output
-        assert f"{line}[red]a.txt" in output
+        assert f"{line}[red]a.txt{tail}" in output
         assert f"Successfully backed up 0 files to {dest}" in output
         assert f"Logging to: {dest / 'backup.log'}" in output
 
@@ -2061,8 +2142,18 @@ class TestPathsInConsoleOutput:
         assert f"Starting file system monitor for {source}" in output
         assert f"Logging to: {dest / 'backup.log'}" in output
 
-    @pytest.mark.parametrize(("error", "line"), [(PermissionError, "ERROR Permission denied: "), (OSError, "WARNING File locked, skipping: ")], ids=["permission", "locked"])
-    def test_watch_error_lines_print_file_names_literally(self, mocker: MockFixture, tmp_path: Path, error: type[OSError], line: str) -> None:
+    @pytest.mark.parametrize(
+        ("error", "winerror", "line", "tail"),
+        [
+            (PermissionError(errno.EACCES, "no access"), None, "ERROR Permission denied: ", ""),
+            (PermissionError(errno.EACCES, "no access"), 32, "WARNING File locked, skipping: ", ""),
+            (OSError(errno.EIO, "[red]bad[/red] sector"), None, "ERROR Backup failed: ", " ([red]bad[/red] sector)"),
+        ],
+        ids=["permission", "locked", "failed"],
+    )
+    def test_watch_error_lines_print_file_names_literally(
+        self, mocker: MockFixture, tmp_path: Path, with_winerror: Callable[[OSError, int], OSError], error: OSError, winerror: int | None, line: str, tail: str
+    ) -> None:
         from rich.console import Console
         from watchdog.events import FileCreatedEvent
 
@@ -2078,7 +2169,9 @@ class TestPathsInConsoleOutput:
         manager = Mock()
         manager.source_path = source
         manager.excluded_patterns = [".backup_state.json"]
-        manager.backup_file.side_effect = error("no access")
+        if winerror is not None:
+            error = with_winerror(error, winerror)
+        manager.backup_file.side_effect = error
         mocker.patch("time.time", return_value=100.0)
         handler = BackupEventHandler(manager, Mock(), mocker.Mock(spec=BackupLogger), 2)
 
@@ -2086,7 +2179,7 @@ class TestPathsInConsoleOutput:
         mocker.patch("time.time", return_value=103.0)
         handler.process_pending_files()
 
-        assert f"{line}[red]notes.txt" in output.getvalue().splitlines()
+        assert f"{line}[red]notes.txt{tail}" in output.getvalue().splitlines()
 
 
 class TestMainApp:
