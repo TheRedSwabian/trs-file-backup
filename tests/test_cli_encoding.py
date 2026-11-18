@@ -4,6 +4,7 @@ The subprocess tests start the CLI through ``python -m trs_file_backup.main`` wi
 and ``PYTHONIOENCODING=cp1252``, the setting of a Windows script that captures the output.
 """
 
+import errno
 import io
 import os
 import subprocess
@@ -113,8 +114,10 @@ class TestCp1252Pipe:
     ("error", "expected_line"),
     [
         (PermissionError("Access denied"), "ERROR Permission denied: report.txt"),
-        (OSError("File is locked"), "WARNING File locked, skipping: report.txt"),
+        (BlockingIOError(errno.EAGAIN, "Resource temporarily unavailable"), "WARNING File locked, skipping: report.txt"),
+        (OSError(errno.ENOSPC, "No space left on device"), "ERROR Backup failed: report.txt (No space left on device)"),
     ],
+    ids=["permission", "locked", "failed"],
 )
 def test_run_error_lines_are_ascii(mocker: MockFixture, tmp_path: Path, error: OSError, expected_line: str) -> None:
     from typer.testing import CliRunner

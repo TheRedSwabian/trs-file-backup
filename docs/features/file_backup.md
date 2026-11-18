@@ -40,6 +40,12 @@ The tool shall be implemented as a Python command-line application with comprehe
 - AC-2.6: If the destination directory does not exist, it shall be created automatically
 - AC-2.7: `run` shall copy the modified files without waiting between or before the copies;
   the debounce delay applies only to `watch` (AC-5.4, AC-5.5), and `run --debounce` only saves it (AC-3.8)
+- AC-2.8: The system shall copy the data to a temporary file `.trs-file-backup-<12 random hexadecimal digits>.tmp` in the destination directory
+  and give it the backup name only when the data is complete.
+  The temporary name has a fixed length of 33 characters, so a long backup name does not make it too long for the file system.
+  If the data copy or the rename fails, the system shall remove the temporary file, also when it is read-only, and leave a file that already has the backup name unchanged.
+  If only the metadata copy (times, permission bits) fails, the backup shall be kept without a message, because its data is complete.
+  A temporary file left behind by a process that was killed during the copy stays in the destination directory
 
 ### FR-3: State Persistence
 
@@ -113,13 +119,15 @@ and automatically backs up files when they are modified, created or moved into i
 - AC-5.4: The system shall wait for a file to be fully written before backing it up (debounce mechanism)
 - AC-5.5: The system shall use the configured debounce delay, default 2 seconds (no backup if another event for the file arrives within that delay).
   AC-3.6 to AC-3.9 define which delay is used
-- AC-5.6: The system shall handle files that are locked or being written by another process (skip with warning)
+- AC-5.6: The system shall handle files that are locked or being written by another process (skip with warning); AC-6.18 defines how a lock is recognised
 - AC-5.7: The system shall log each backup operation with timestamp
 - AC-5.8: The system shall continue running until explicitly stopped by the user (Ctrl+C)
 - AC-5.9: The watch mode shall respect all exclusion patterns defined for the backup
 - AC-5.10: A file created in the source directory, or moved or renamed into it, shall trigger a backup like a modified file (AC-5.3 to AC-5.9).
   For a move or rename, the new name decides; a file moved from the source directory into a subdirectory is ignored (AC-1.3).
   The console and the log name the kind of event: `File modified: <name>`, `File created: <name>` or `File moved: <name>`
+- AC-5.11: If the state file cannot be saved after a successful backup, the console and the log shall show the error `Cannot save state file: <reason>`.
+  The backup still counts and is logged as backed up, and the watch mode continues
 
 ### FR-6: Activity Logging
 
@@ -136,8 +144,8 @@ and automatically backs up files when they are modified, created or moved into i
 - AC-6.5: Each log entry shall include a log level: `INFO`, `WARNING`, or `ERROR`
 - AC-6.6: Log entry format: `[YYYY-MM-DD HH:MM:SS] [LEVEL] message`
 - AC-6.7: The system shall log successful backup operations with level `INFO`
-- AC-6.8: The system shall log warnings (e.g., file skipped, locked file) with level `WARNING`
-- AC-6.9: The system shall log errors (e.g., no access, permission denied) with level `ERROR`
+- AC-6.8: The system shall log warnings (e.g., file skipped, locked file as AC-6.18 defines it) with level `WARNING`
+- AC-6.9: The system shall log errors (e.g., no access, permission denied, copy failed as AC-6.18 defines them) with level `ERROR`
 - AC-6.10: The log file shall be a plain text file with UTF-8 encoding
 - AC-6.11: Log entries shall be appended to the existing log file (not overwritten)
 - AC-6.12: All script interruptions and exceptions shall be logged with appropriate level
@@ -148,12 +156,20 @@ and automatically backs up files when they are modified, created or moved into i
 - AC-6.16: All excluded files encountered during a `watch` session shall be logged with level `WARNING`; `run` logs no excluded files
 - AC-6.17: The log entry for an excluded file (AC-6.16) shall give the reason: `File excluded: <name> (hidden file)` for a hidden file (AC-4.1),
   also for the state file, and `File excluded: <name> (matches: <pattern>)` with the first exclusion pattern that matches the name
+- AC-6.18: When `run` or `watch` cannot back up a file because of an operating system error, the console and the log shall name the cause,
+  and the system shall continue with the next file:
+  - Locked file: Windows error 32 (sharing violation) or 33 (lock violation), `BlockingIOError`, or error number `EBUSY`.
+    Level `WARNING`, message `File locked, skipping: <name>`.
+    A locked file on Windows raises `PermissionError`, so the Windows error decides, not the error number `EACCES`
+  - Missing permission: any other `PermissionError`. Level `ERROR`, message `Permission denied: <name>`
+  - Any other error, e.g. disk full, path too long, or a file deleted between scan and copy:
+    level `ERROR`, message `Backup failed: <name> (<reason>)`, where `<reason>` is the error text from the operating system, else the message of the error
 
 **Log Level Usage:**
 
 - **INFO**: Successful operations (session started, backup started, file backed up, operation completed, session ended)
-- **WARNING**: Non-critical issues (file skipped due to exclusion, file locked, file not initially backed up)
-- **ERROR**: Critical errors (permission denied, source directory not found, copy failed)
+- **WARNING**: Non-critical issues (file skipped due to exclusion, file locked as AC-6.18 defines it, file not initially backed up)
+- **ERROR**: Critical errors (permission denied and copy failed as AC-6.18 defines them, state file not saved in watch mode (AC-5.11), source directory not found)
 
 ### FR-7: Show and Edit the Saved Settings
 
@@ -750,7 +766,7 @@ A session has:
 - Implementation language: Python; the minimum version is set by `requires-python` in `pyproject.toml`
 - Use `typer` library for CLI framework with built-in help generation
 - Use Python's `pathlib` for cross-platform path handling
-- Use `shutil.copy2()` to preserve file metadata during copy
+- Copy a file as AC-2.8 says: `shutil.copyfile()` to the temporary file, `shutil.copystat()` for the metadata, `os.replace()` to the backup name
 - Use `datetime.now()` for timestamp generation
 - Use `Path.iterdir()` to iterate only files in the top-level directory (not recursive)
 - Skip all entries where `Path.is_dir()` returns True
@@ -769,7 +785,7 @@ A session has:
 - Debounce delay and its default: AC-5.5
 - The debounce delay is saved in the state file; AC-3.6 to AC-3.9 define which delay `run` and `watch` use
 - Use a timer-based approach: reset the timer on each event that AC-5.5 and AC-5.10 name, trigger backup when timer expires
-- Handle file locking gracefully using try-except around file operations
+- Catch the errors of the copy with try-except and report them by cause, as AC-6.18 defines it
 - Log skipped files (locked/excluded) separately from successful backups
 - Ensure clean shutdown on SIGINT (Ctrl+C)
 
