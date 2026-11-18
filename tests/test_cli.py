@@ -876,8 +876,8 @@ class TestConfigShow:
 
     @pytest.mark.parametrize(
         "command",
-        [["config", "show"], ["config"], ["config", "show", "debounce"], ["config", "set", "retention.days", "7"]],
-        ids=["show", "menu", "show-key", "set"],
+        [["config", "show"], ["config"], ["config", "show", "debounce"], ["config", "set", "retention.days", "7"], ["cleanup"], ["cleanup", "--dry-run"]],
+        ids=["show", "menu", "show-key", "set", "cleanup", "cleanup-dry-run"],
     )
     def test_without_state_file_says_run_init_first_and_creates_nothing(self, mocker: MockFixture, tmp_path: Path, command: list[str]) -> None:
         from trs_file_backup.main import app
@@ -1319,7 +1319,7 @@ class TestRetentionRulesInSettings:
             pytest.param(5, "retention = 5", id="not-an-object"),
         ],
     )
-    @pytest.mark.parametrize("command", ["run", "watch", "config show", "config show key", "config set", "config without terminal", "config menu"])
+    @pytest.mark.parametrize("command", ["run", "watch", "config show", "config show key", "config set", "config without terminal", "config menu", "cleanup", "cleanup dry run"])
     def test_invalid_stored_rule_stops_the_command_before_anything_is_written(self, mocker: MockFixture, tmp_path: Path, command: str, retention: object, key: str) -> None:
         from trs_file_backup.main import app
 
@@ -1339,6 +1339,8 @@ class TestRetentionRulesInSettings:
             "config set": ["config", "set", "debounce", "3", "--destination", str(dest)],
             "config without terminal": ["config", "--destination", str(dest)],
             "config menu": ["config", "--destination", str(dest)],
+            "cleanup": ["cleanup", "--destination", str(dest)],
+            "cleanup dry run": ["cleanup", "--destination", str(dest), "--dry-run"],
         }[command]
 
         result = runner.invoke(app, arguments, input="s\n")
@@ -1448,7 +1450,7 @@ class TestRetentionRulesInSettings:
         assert _saved_retention(dest) == EXAMPLE_RULES
         assert "Retention rules: hours 24, days 7, weeks 4, months -1\n" in _last_session_header(dest)
 
-    @pytest.mark.parametrize("command", ["init", "run", "watch", "config"])
+    @pytest.mark.parametrize("command", ["init", "run", "watch", "config", "cleanup"])
     def test_no_command_takes_a_rule_as_an_option(self, command: str) -> None:
         """The rules are changed with config only (spec AC-8.15)."""
         from trs_file_backup.main import app
@@ -2940,7 +2942,9 @@ class TestMainApp:
         assert "destination" in _help_output(result)
         assert "debounce" in _help_output(result)
 
-    @pytest.mark.parametrize("command", [[], ["init"], ["run"], ["watch"], ["config"], ["config", "show"]], ids=["app", "init", "run", "watch", "config", "config-show"])
+    @pytest.mark.parametrize(
+        "command", [[], ["init"], ["run"], ["watch"], ["config"], ["config", "show"], ["cleanup"]], ids=["app", "init", "run", "watch", "config", "config-show", "cleanup"]
+    )
     def test_short_help_option_matches_long_one(self, command: list[str]) -> None:
         """Spec NFR-3: -h works like --help for the main command and every subcommand."""
         from trs_file_backup.main import app
@@ -3480,3 +3484,378 @@ class TestRetentionInWatch:
 
         assert result.exit_code == 0, result.output
         assert handler_spy.call_args.kwargs["retention"] == RetentionRules(**EXAMPLE_RULES)
+
+
+def _backup_at(dest: Path, original: str, when: datetime) -> Path:
+    """Create the backup of original made at when in dest and return it."""
+    from trs_file_backup.backup import BackupManager
+
+    path = dest / BackupManager.generate_backup_filename(original, when)
+    path.write_text("old")
+    return path
+
+
+class TestCleanupCommand:
+    """cleanup applies the saved rules to every group of backups in the destination directory (spec AC-8.14)."""
+
+    @pytest.fixture(autouse=True)
+    def _wide_console(self, mocker: MockFixture) -> None:
+        """Print to the runner's output without wrapping, so a long path stays on one line."""
+        from rich.console import Console
+
+        mocker.patch("trs_file_backup.main.console", Console(width=1000, emoji=False))
+
+    @staticmethod
+    def _cleanup(dest: Path, *options: str) -> Result:
+        from trs_file_backup.main import app
+
+        return runner.invoke(app, ["cleanup", "--destination", str(dest), *options])
+
+    @staticmethod
+    def _three_groups(dest: Path) -> dict[str, list[Path]]:
+        """Create backups of Report.txt, b.txt and report.txt; with days=2 only the oldest backup of report.txt is deleted.
+
+        Report.txt has its backup in 2019, so that its name differs from the backups of report.txt also on a case-insensitive file system.
+        """
+        return {
+            "Report.txt": [_backup_at(dest, "Report.txt", OLD_TIME.replace(year=2019))],
+            "b.txt": [_backup_at(dest, "b.txt", OLD_TIME)],
+            "report.txt": [_backup_at(dest, "report.txt", OLD_TIME + timedelta(days=offset)) for offset in (2, 1, 0)],
+        }
+
+    def test_dry_run_lists_kept_and_deleted_backups_and_changes_nothing(self, mocker: MockFixture, tmp_path: Path) -> None:
+        from trs_file_backup.backup import list_backup_groups
+
+        _, dest = _with_rules(tmp_path, {**ALL_RULES_OFF, "days": 2})
+        groups = self._three_groups(dest)
+        state_before = _state_bytes(dest)
+        log_before = (dest / "backup.log").read_bytes()
+        listing = mocker.patch("trs_file_backup.main.list_backup_groups", wraps=list_backup_groups)
+        delete = mocker.patch("trs_file_backup.main.delete_backup")
+
+        result = self._cleanup(dest, "--dry-run")
+
+        assert result.exit_code == 0, result.output
+        newest, middle, oldest = groups["report.txt"]
+        # Original files sorted case-sensitively ("R" before "b" before "r"), backups newest first (spec AC-8.14)
+        assert result.output == (
+            "Dry run: nothing is deleted.\n"
+            "Report.txt\n"
+            f"  keep    {groups['Report.txt'][0].name}\n"
+            "b.txt\n"
+            f"  keep    {groups['b.txt'][0].name}\n"
+            "report.txt\n"
+            f"  keep    {newest.name}\n"
+            f"  keep    {middle.name}\n"
+            f"  delete  {oldest.name}\n"
+            "\n"
+            "Would delete 1 of 5 backups\n"
+        )
+        assert listing.call_count == 1
+        delete.assert_not_called()
+        assert all(path.exists() for paths in groups.values() for path in paths)
+        assert _state_bytes(dest) == state_before
+        assert (dest / "backup.log").read_bytes() == log_before
+
+    def test_dry_run_lists_kept_and_deleted_backups_together_newest_first(self, tmp_path: Path) -> None:
+        _, dest = _with_rules(tmp_path, {**ALL_RULES_OFF, "days": 1, "months": -1})
+        day = OLD_TIME.replace(hour=19, minute=32)
+        newest = _backup_at(dest, "report.txt", day)
+        same_day = _backup_at(dest, "report.txt", day.replace(minute=27))
+        older_month = _backup_at(dest, "report.txt", day - timedelta(days=40))
+
+        result = self._cleanup(dest, "--dry-run")
+
+        assert result.exit_code == 0, result.output
+        assert result.output == (
+            f"Dry run: nothing is deleted.\nreport.txt\n  keep    {newest.name}\n  delete  {same_day.name}\n  keep    {older_month.name}\n\nWould delete 1 of 3 backups\n"
+        )
+
+    def test_deletes_what_the_rules_do_not_keep_and_logs_one_session(self, mocker: MockFixture, tmp_path: Path) -> None:
+        from trs_file_backup.backup import list_backup_groups
+
+        source, dest = _with_rules(tmp_path, {**ALL_RULES_OFF, "days": 1})
+        groups = self._three_groups(dest)
+        state_before = _state_bytes(dest)
+        listing = mocker.patch("trs_file_backup.main.list_backup_groups", wraps=list_backup_groups)
+
+        result = self._cleanup(dest)
+
+        assert result.exit_code == 0, result.output
+        newest, middle, oldest = groups["report.txt"]
+        assert result.output == (
+            f"Applying retention rules to {dest}\n"
+            f"  Deleted old backup: {middle.name}\n"
+            f"  Deleted old backup: {oldest.name}\n"
+            "\n"
+            "Deleted 2 of 2 old backups\n"
+            f"Logging to: {dest / 'backup.log'}\n"
+        )
+        assert listing.call_count == 1
+        assert newest.exists()
+        assert not middle.exists()
+        assert not oldest.exists()
+        assert groups["Report.txt"][0].exists()
+        assert groups["b.txt"][0].exists()
+        # cleanup does not write the state file (spec AC-8.14)
+        assert _state_bytes(dest) == state_before
+        session = _last_session_header(dest)
+        assert "[INFO] Command: cleanup\n" in session
+        assert f"[INFO] Source: {source}\n" in session
+        assert f"[INFO] Destination: {dest}\n" in session
+        lines = [line.split("] ", 2)[-1] for line in session.splitlines() if line.startswith("[")]
+        start = lines.index("Retention rules: hours 0, days 1, weeks 0, months 0") + 1
+        assert lines[start : lines.index("========== Session Ended ==========") + 1] == [
+            f"Deleted old backup: {middle.name}",
+            f"Deleted old backup: {oldest.name}",
+            "Session summary: 2 of 2 old backups deleted",
+            "========== Session Ended ==========",
+        ]
+        assert _log(dest).count("Session Started") == 2
+
+    def test_rules_that_keep_every_backup_delete_nothing_and_still_log_a_session(self, tmp_path: Path) -> None:
+        _, dest = _with_rules(tmp_path, {**ALL_RULES_OFF, "hours": -1})
+        old = _old_backups(dest, "report.txt")
+
+        result = self._cleanup(dest)
+
+        assert result.exit_code == 0, result.output
+        assert all(path.exists() for path in old)
+        assert result.output == f"Applying retention rules to {dest}\n\nDeleted 0 of 0 old backups\nLogging to: {dest / 'backup.log'}\n"
+        session = _last_session_header(dest)
+        assert "[INFO] Command: cleanup\n" in session
+        assert "[INFO] Session summary: 0 of 0 old backups deleted\n" in session
+
+    def test_thins_backups_of_source_files_that_no_longer_exist(self, tmp_path: Path) -> None:
+        import shutil
+
+        source, dest = _with_rules(tmp_path, DAYS_ONE)
+        older, newer = _old_backups(dest, "gone.txt")
+        shutil.rmtree(source)
+
+        result = self._cleanup(dest)
+
+        assert result.exit_code == 0, result.output
+        assert not older.exists()
+        assert newer.exists()
+
+    def test_never_touches_files_that_are_no_backup(self, tmp_path: Path) -> None:
+        _, dest = _with_rules(tmp_path, DAYS_ONE)
+        older, newer = _old_backups(dest, "report.txt")
+        foreign = [dest / "notes.txt", dest / ".trs-file-backup-0123456789ab.tmp", dest / "report_2020_02_30__08_00_00.txt"]
+        for path in foreign:
+            path.write_text("x")
+        directory = dest / "report_2019_05_17__08_00_00.txt"
+        directory.mkdir()
+
+        result = self._cleanup(dest)
+
+        assert result.exit_code == 0, result.output
+        assert not older.exists()
+        assert newer.exists()
+        assert all(path.exists() for path in foreign)
+        assert directory.is_dir()
+        assert (dest / "backup.log").exists()
+        assert (dest / ".backup_state.json").exists()
+        for path in [*foreign, directory]:
+            assert path.name not in result.output
+
+    @pytest.mark.parametrize("dry_run", [False, True], ids=["real", "dry-run"])
+    def test_all_rules_zero_says_retention_is_off_and_writes_nothing(self, mocker: MockFixture, tmp_path: Path, dry_run: bool) -> None:
+        _, dest = _with_rules(tmp_path, ALL_RULES_OFF)
+        old = _old_backups(dest, "report.txt")
+        state_before = _state_bytes(dest)
+        log_before = (dest / "backup.log").read_bytes()
+        listing = mocker.patch("trs_file_backup.main.list_backup_groups")
+
+        result = self._cleanup(dest, *(["--dry-run"] if dry_run else []))
+
+        assert result.exit_code == 0, result.output
+        assert result.output == "Retention is off: no rule is set, so no backup is deleted.\n"
+        listing.assert_not_called()
+        assert all(path.exists() for path in old)
+        assert _state_bytes(dest) == state_before
+        assert (dest / "backup.log").read_bytes() == log_before
+
+    def test_a_locked_backup_is_reported_and_the_exit_code_is_one(self, mocker: MockFixture, tmp_path: Path, with_winerror: Callable[[OSError, int], OSError]) -> None:
+        _, dest = _with_rules(tmp_path, DAYS_ONE)
+        (locked,) = _old_backups(dest, "readme.md", count=1)
+        _backup_at(dest, "readme.md", OLD_TIME + timedelta(days=3))
+        (deleted,) = _old_backups(dest, "main.py", count=1)
+        _backup_at(dest, "main.py", OLD_TIME + timedelta(days=3))
+        real_unlink = Path.unlink
+
+        def lock_readme(path: Path, missing_ok: bool = False) -> None:
+            if path.name == locked.name:
+                raise with_winerror(PermissionError(errno.EACCES, "sharing violation"), 32)
+            real_unlink(path, missing_ok=missing_ok)
+
+        mocker.patch.object(Path, "unlink", autospec=True, side_effect=lock_readme)
+
+        result = self._cleanup(dest)
+
+        assert result.exit_code == 1
+        assert locked.exists()
+        assert not deleted.exists()
+        assert result.output == (
+            f"Applying retention rules to {dest}\n"
+            f"  Deleted old backup: {deleted.name}\n"
+            f"  WARNING Backup locked, not deleted: {locked.name}\n"
+            "\n"
+            "Deleted 1 of 2 old backups\n"
+            f"Logging to: {dest / 'backup.log'}\n"
+        )
+        log = _log(dest)
+        assert f"[WARNING] Backup locked, not deleted: {locked.name}\n" in log
+        assert "[INFO] Session summary: 1 of 2 old backups deleted\n" in log
+
+    def test_a_backup_already_gone_counts_as_deleted(self, mocker: MockFixture, tmp_path: Path) -> None:
+        _, dest = _with_rules(tmp_path, DAYS_ONE)
+        older, _ = _old_backups(dest, "report.txt")
+        real_unlink = Path.unlink
+
+        def vanish(path: Path, missing_ok: bool = False) -> None:
+            real_unlink(path)
+            raise FileNotFoundError(errno.ENOENT, "No such file or directory")
+
+        mocker.patch.object(Path, "unlink", autospec=True, side_effect=vanish)
+
+        result = self._cleanup(dest)
+
+        assert result.exit_code == 0, result.output
+        assert not older.exists()
+        assert older.name not in result.output
+        assert "Deleted 1 of 1 old backups\n" in result.output
+        assert "Session summary: 1 of 1 old backups deleted" in _log(dest)
+
+    def test_an_unexpected_error_while_deleting_is_a_failure(self, mocker: MockFixture, tmp_path: Path) -> None:
+        _, dest = _with_rules(tmp_path, DAYS_ONE)
+        older, _ = _old_backups(dest, "report.txt")
+        mocker.patch("trs_file_backup.main.delete_backup", side_effect=RuntimeError("boom"))
+
+        result = self._cleanup(dest)
+
+        assert result.exit_code == 1
+        assert older.exists()
+        message = f"Cannot delete backup: {older.name} (boom)"
+        assert f"  ERROR {message}" in result.output.splitlines()
+        assert f"[ERROR] {message}" in _log(dest)
+        assert "Deleted 0 of 1 old backups\n" in result.output
+
+    @pytest.mark.parametrize("dry_run", [False, True], ids=["real", "dry-run"])
+    def test_a_failed_listing_is_reported_and_the_exit_code_is_one(self, mocker: MockFixture, tmp_path: Path, dry_run: bool) -> None:
+        _, dest = _with_rules(tmp_path, DAYS_ONE)
+        old = _old_backups(dest, "report.txt")
+        log_before = (dest / "backup.log").read_bytes()
+        mocker.patch("trs_file_backup.main.list_backup_groups", side_effect=OSError(errno.EIO, "Input/output error"))
+
+        result = self._cleanup(dest, *(["--dry-run"] if dry_run else []))
+
+        assert result.exit_code == 1
+        assert all(path.exists() for path in old)
+        message = f"Cannot list backups in {dest}: Input/output error"
+        assert f"  ERROR {message}" in result.output.splitlines()
+        if dry_run:
+            assert (dest / "backup.log").read_bytes() == log_before
+        else:
+            log = _log(dest)
+            assert f"[ERROR] {message}\n" in log
+            assert "Session summary: 0 of 0 old backups deleted" in log
+
+    @pytest.mark.parametrize("dry_run", [False, True], ids=["real", "dry-run"])
+    def test_an_error_while_applying_the_rules_to_one_group_is_a_failure(self, mocker: MockFixture, tmp_path: Path, dry_run: bool) -> None:
+        from trs_file_backup.retention import plan_retention
+
+        _, dest = _with_rules(tmp_path, DAYS_ONE)
+        broken = _old_backups(dest, "a.txt")
+        older, newer = _old_backups(dest, "b.txt")
+
+        def fail_for_a(backups: Any, *args: Any, **kwargs: Any) -> Any:
+            backups = list(backups)
+            if backups[0].original == "a.txt":
+                raise RuntimeError("boom")
+            return plan_retention(backups, *args, **kwargs)
+
+        mocker.patch("trs_file_backup.main.plan_retention", side_effect=fail_for_a)
+
+        result = self._cleanup(dest, *(["--dry-run"] if dry_run else []))
+
+        assert result.exit_code == 1
+        assert all(path.exists() for path in broken)
+        assert "  ERROR Retention failed for a.txt: boom" in result.output.splitlines()
+        assert newer.exists()
+        if dry_run:
+            assert older.exists()
+            assert f"  delete  {older.name}" in result.output.splitlines()
+            assert result.output.endswith("Would delete 1 of 2 backups\n")
+        else:
+            assert not older.exists()
+            assert "[ERROR] Retention failed for a.txt: boom" in _log(dest)
+            assert "Deleted 1 of 1 old backups\n" in result.output
+
+    def test_names_with_markup_are_printed_as_they_are(self, tmp_path: Path) -> None:
+        _, dest = _with_rules(tmp_path, DAYS_ONE)
+        older, newer = _old_backups(dest, "[red]x.txt")
+
+        result = self._cleanup(dest, "--dry-run")
+
+        assert result.exit_code == 0, result.output
+        assert "[red]x.txt\n" in result.output
+        assert f"  keep    {newer.name}\n" in result.output
+        assert f"  delete  {older.name}\n" in result.output
+
+    def test_missing_destination_is_a_usage_error(self) -> None:
+        from trs_file_backup.main import app
+
+        result = runner.invoke(app, ["cleanup"])
+
+        assert result.exit_code == 2
+        assert "--destination" in click.unstyle(result.output)
+
+    def test_a_log_that_cannot_be_opened_is_an_error_before_anything_is_deleted(self, mocker: MockFixture, tmp_path: Path) -> None:
+        _, dest = _with_rules(tmp_path, DAYS_ONE)
+        old = _old_backups(dest, "report.txt")
+        mocker.patch("trs_file_backup.main.BackupLogger", side_effect=PermissionError(errno.EACCES, "Permission denied"))
+        listing = mocker.patch("trs_file_backup.main.list_backup_groups")
+
+        result = self._cleanup(dest)
+
+        assert result.exit_code == 1
+        assert result.output.startswith(f"Error: cannot write {dest / 'backup.log'}: ")
+        listing.assert_not_called()
+        assert all(path.exists() for path in old)
+
+    def test_unreadable_state_file_is_an_error_and_deletes_nothing(self, tmp_path: Path) -> None:
+        dest = tmp_path / "dest"
+        old = _old_backups(dest, "report.txt")
+        (dest / ".backup_state.json").write_text("{not json", encoding="utf-8")
+
+        result = self._cleanup(dest)
+
+        assert result.exit_code == 1
+        assert result.output.startswith("Error: cannot read ")
+        assert all(path.exists() for path in old)
+        assert not (dest / "backup.log").exists()
+
+    def test_help_shows_purpose_options_and_examples(self) -> None:
+        from trs_file_backup.main import app
+
+        result = runner.invoke(app, ["cleanup", "--help"], env={"COLUMNS": "400"})
+
+        assert result.exit_code == 0
+        help_text = " ".join(_help_output(result).split())
+        assert "delete old backups by the saved retention rules" in help_text
+        assert "the newest backup of each original file is always kept. change the rules with 'config'." in help_text
+        assert "--destination" in help_text
+        assert "show what would be kept and deleted, without deleting" in help_text
+        assert "trs-file-backup cleanup --destination ./backup --dry-run" in help_text
+        assert "trs-file-backup config set retention.days 14 --destination ./backup" in help_text
+
+    def test_main_help_lists_cleanup(self) -> None:
+        from trs_file_backup.main import app
+
+        result = runner.invoke(app, ["--help"], env={"COLUMNS": "400"})
+
+        assert result.exit_code == 0
+        help_text = _help_output(result)
+        assert re.search(r"cleanup\s+delete old backups by the saved retention rules", help_text)

@@ -7,6 +7,7 @@ import re
 import sys
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
@@ -32,7 +33,7 @@ from trs_file_backup.backup import (
 )
 from trs_file_backup.logger import BackupLogger
 from trs_file_backup.patterns import pattern_problem
-from trs_file_backup.retention import NO_LIMIT, RULE_FIELDS, ParsedBackup, RetentionRules, is_valid_rule_value, parse_backup_name, plan_retention
+from trs_file_backup.retention import NO_LIMIT, RULE_FIELDS, ParsedBackup, RetentionPlan, RetentionRules, is_valid_rule_value, parse_backup_name, plan_retention
 from trs_file_backup.state import InvalidRetentionRuleError, StateManager
 
 app = typer.Typer(
@@ -469,6 +470,27 @@ def error_reason(error: Exception) -> str:
     return str(error) or type(error).__name__
 
 
+def report_retention_error(logger: BackupLogger | None, message: str, indent: str = "") -> None:
+    """Print a retention error with the marker ERROR, and log it when there is a logger (spec AC-8.13); cleanup --dry-run has none."""
+    if logger is not None:
+        logger.log_error(message)
+    console.print(Text.assemble(indent, ("ERROR", "red"), f" {message}"))
+
+
+def delete_and_report(destination: Path, name: str, logger: BackupLogger, indent: str = "") -> bool:
+    """Delete the backup name in destination, report the outcome, and return True when it is gone (spec AC-8.13).
+
+    An unexpected error is reported as a failed deletion and not raised, so the next backup is still deleted.
+    """
+    try:
+        result = delete_backup(destination / name)
+    except Exception as error:
+        report_retention_error(logger, f"Cannot delete backup: {name} ({error_reason(error)})", indent)
+        return False
+    report_deletion(logger, name, result, indent)
+    return result.counts_as_deleted
+
+
 class RetentionApplier:
     """Apply the retention rules to the backups of a source file right after its backup (spec AC-8.9 to AC-8.13).
 
@@ -538,18 +560,10 @@ class RetentionApplier:
         return groups
 
     def _delete(self, name: str) -> bool:
-        """Delete the backup name, report the outcome, and return True when it is gone (spec AC-8.13)."""
-        try:
-            result = delete_backup(self.destination / name)
-        except Exception as error:
-            self._error(f"Cannot delete backup: {name} ({error_reason(error)})")
-            return False
-        report_deletion(self.logger, name, result, self.indent)
-        return result.counts_as_deleted
+        return delete_and_report(self.destination, name, self.logger, self.indent)
 
     def _error(self, message: str) -> None:
-        self.logger.log_error(message)
-        console.print(Text.assemble(self.indent, ("ERROR", "red"), f" {message}"))
+        report_retention_error(self.logger, message, self.indent)
 
 
 class BackupEventHandler(FileSystemEventHandler):
@@ -1305,6 +1319,143 @@ def config_set(
     state_file = _save(target, _with_setting(saved, key, new_value))
     _say(STOP_WATCH_NOTE)
     _say(f"Saved {key} = {new_value} to {state_file}. The change takes effect at the next start of 'run', 'watch' or 'cleanup'.")
+
+
+RETENTION_OFF_MESSAGE = "Retention is off: no rule is set, so no backup is deleted."
+CLEANUP_INDENT = "  "
+
+
+@app.command()
+def cleanup(
+    destination: Path = typer.Option(  # noqa: B008
+        ...,
+        "--destination",
+        help=DESTINATION_HELP,
+        file_okay=False,
+        dir_okay=True,
+        resolve_path=True,
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Show what would be kept and deleted, without deleting",
+    ),
+) -> None:
+    """Delete old backups by the saved retention rules.
+
+    This command applies the retention rules saved in the state file to the
+    backups of every original file in the destination directory. Only files
+    whose name is a backup name can be deleted, and the newest backup of each
+    original file is always kept. Change the rules with 'config'.
+
+    Examples:
+
+      # Preview what the saved rules would delete
+      trs-file-backup cleanup --destination ./backup --dry-run
+
+      # Delete the old backups
+      trs-file-backup cleanup --destination ./backup
+
+      # Try another rule: change it, then preview
+      trs-file-backup config set retention.days 14 --destination ./backup
+      trs-file-backup cleanup --destination ./backup --dry-run
+    """
+    # Outside any broad error guard: typer.Exit is a RuntimeError, and the error is printed once (spec AC-7.12, AC-8.16)
+    state = _load_saved_state(destination)
+    if state.retention.is_off:
+        _say(RETENTION_OFF_MESSAGE)
+        return
+    succeeded = _preview_cleanup(destination, state.retention) if dry_run else _run_cleanup(destination, state)
+    if not succeeded:
+        raise typer.Exit(code=1)
+
+
+def _apply_to_each_group(destination: Path, rules: RetentionRules, logger: BackupLogger | None, handle: Callable[[str, RetentionPlan], bool]) -> bool:
+    """List the destination directory once and pass the plan of each original file, sorted case-sensitively, to handle (spec AC-8.14).
+
+    A failed listing, and any error while one group is handled, is reported; the next group follows (spec AC-8.13).
+    Return True when the listing and every group succeeded; handle returns False when a deletion of its group failed.
+    """
+    try:
+        groups = list_backup_groups(destination)
+    except Exception as error:
+        report_retention_error(logger, f"Cannot list backups in {destination}: {error_reason(error)}", CLEANUP_INDENT)
+        return False
+    succeeded = True
+    for original in sorted(groups):
+        try:
+            # "Now" is read for each original file (spec AC-8.4); cleanup has no backup just made to keep (spec AC-8.9)
+            if not handle(original, plan_retention(groups[original], rules, datetime.now())):
+                succeeded = False
+        except Exception as error:
+            report_retention_error(logger, f"Retention failed for {original}: {error_reason(error)}", CLEANUP_INDENT)
+            succeeded = False
+    return succeeded
+
+
+def _preview_cleanup(destination: Path, rules: RetentionRules) -> bool:
+    """List per original file which backups are kept and which would be deleted; delete and write nothing (spec AC-8.14)."""
+    _say("Dry run: nothing is deleted.")
+    to_delete = 0
+    total = 0
+
+    def show(original: str, plan: RetentionPlan) -> bool:
+        nonlocal to_delete, total
+        _say(original)
+        # Kept and deleted backups together, newest first, in the order plan_retention sorts them (spec AC-8.14)
+        lines = [(backup, "keep    ") for backup in plan.keep] + [(backup, "delete  ") for backup in plan.delete]
+        for backup, action in sorted(lines, key=lambda line: (line[0].timestamp, line[0].name), reverse=True):
+            _say(f"{CLEANUP_INDENT}{action}{backup.name}")
+        to_delete += len(plan.delete)
+        total += len(plan.keep) + len(plan.delete)
+        return True
+
+    succeeded = _apply_to_each_group(destination, rules, None, show)
+    _say("")
+    _say(f"Would delete {to_delete} of {total} backups")
+    return succeeded
+
+
+def _run_cleanup(destination: Path, state: StateManager) -> bool:
+    """Delete the backups that no rule keeps, report each outcome and log one session (spec AC-8.13, AC-8.14); the state file is not written."""
+    log_file = destination / "backup.log"
+    try:
+        logger = BackupLogger(destination)
+    except OSError as e:
+        _error(f"cannot write {log_file}: {e}")
+    deleted = 0
+    to_delete = 0
+
+    def delete(original: str, plan: RetentionPlan) -> bool:
+        nonlocal deleted, to_delete
+        all_deleted = True
+        to_delete += len(plan.delete)
+        for backup in plan.delete:
+            if delete_and_report(destination, backup.name, logger, CLEANUP_INDENT):
+                deleted += 1
+            else:
+                all_deleted = False
+        return all_deleted
+
+    try:
+        logger.log_session_start(
+            command="cleanup",
+            source_path=state.source_path,
+            destination_path=destination,
+            excluded_patterns=state.excluded_patterns,
+            debounce_seconds=state.debounce_seconds,
+            retention=state.retention,
+        )
+        _say(f"Applying retention rules to {destination}")
+        succeeded = _apply_to_each_group(destination, state.retention, logger, delete)
+        logger.log_cleanup_summary(deleted, to_delete)
+        logger.log_session_end()
+    finally:
+        logger.close()
+    _say("")
+    _say(f"Deleted {deleted} of {to_delete} old backups")
+    _say(f"Logging to: {log_file}")
+    return succeeded
 
 
 def replace_unencodable(stream: TextIO | None) -> None:

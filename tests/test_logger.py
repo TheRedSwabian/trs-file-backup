@@ -339,3 +339,17 @@ class TestBackupLogger:
         assert "13" in call_str
         assert "15" in call_str
         assert "completed" in call_str.lower()
+
+    @pytest.mark.parametrize(("deleted", "to_delete"), [(1, 2), (0, 0)], ids=["some", "none"])
+    def test_log_cleanup_summary(self, tmp_path: Path, deleted: int, to_delete: int) -> None:
+        """The cleanup summary is logged also when nothing was to be deleted (spec AC-8.14)."""
+        from trs_file_backup.logger import BackupLogger
+
+        logger = BackupLogger(tmp_path)
+        try:
+            logger.log_cleanup_summary(deleted, to_delete)
+        finally:
+            logger.close()
+
+        log = (tmp_path / "backup.log").read_text(encoding="utf-8")
+        assert log.endswith(f"[INFO] Session summary: {deleted} of {to_delete} old backups deleted\n")
